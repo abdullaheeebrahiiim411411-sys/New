@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: now-minutes-radar-control
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /
+    autoDeploy: true
+    dockerfilePath: ./render-shell/Dockerfile
+    envVars:
+      - key: ARCHIVE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
