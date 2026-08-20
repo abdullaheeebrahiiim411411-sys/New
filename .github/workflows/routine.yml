@@ -1,0 +1,64 @@
+name: Routine
+
+on:
+  schedule:
+    # Avoid minute zero, which is commonly delayed during high Actions load.
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routine-main
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    # The workflow intentionally has no pull_request, pull_request_target,
+    # workflow_run, issue_comment, or external repository triggers.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 170
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "$ARCHIVE_KEY"
+          mkdir -p "$RUNNER_TEMP/.cache"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/.cache/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/.cache/a.tgz" -C "$RUNNER_TEMP/.cache"
+          test -f "$RUNNER_TEMP/.cache/scanner.py"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/.cache/requirements.txt"
+
+      - name: Execute
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NOON_LOCATION_COOKIE: ${{ secrets.NOON_LOCATION_COOKIE }}
+          NOON_DISCOVERY_URLS: ${{ secrets.NOON_DISCOVERY_URLS }}
+          LOCATION_NAME: ${{ vars.LOCATION_NAME }}
+          LOCATION_LAT: ${{ vars.LOCATION_LAT }}
+          LOCATION_LON: ${{ vars.LOCATION_LON }}
+          NOON_CITY_HEADER: ${{ vars.NOON_CITY_HEADER }}
+          SCAN_CONCURRENCY: ${{ vars.SCAN_CONCURRENCY }}
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/.cache"
+          python scanner.py
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/.cache"
