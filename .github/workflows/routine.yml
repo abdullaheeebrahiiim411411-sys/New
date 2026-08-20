@@ -47,11 +47,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           NOON_LOCATION_COOKIE: ${{ secrets.NOON_LOCATION_COOKIE }}
           NOON_DISCOVERY_URLS: ${{ secrets.NOON_DISCOVERY_URLS }}
-          LOCATION_NAME: ${{ vars.LOCATION_NAME }}
-          LOCATION_LAT: ${{ vars.LOCATION_LAT }}
-          LOCATION_LON: ${{ vars.LOCATION_LON }}
-          NOON_CITY_HEADER: ${{ vars.NOON_CITY_HEADER }}
-          SCAN_CONCURRENCY: ${{ vars.SCAN_CONCURRENCY }}
         run: |
           set -Eeuo pipefail
           cd "$RUNNER_TEMP/.cache"
