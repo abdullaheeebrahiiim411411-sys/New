@@ -9,7 +9,8 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY . /app
-RUN chmod 0755 /app/render-shell/start.sh
+RUN python -m pip install --no-cache-dir -r /app/render-shell/requirements.txt \
+    && chmod 0755 /app/render-shell/start.sh
 
 EXPOSE 10000
 CMD ["/app/render-shell/start.sh"]
