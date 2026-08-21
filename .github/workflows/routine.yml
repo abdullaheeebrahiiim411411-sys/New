@@ -47,6 +47,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           NOON_LOCATION_COOKIE: ${{ secrets.NOON_LOCATION_COOKIE }}
           NOON_DISCOVERY_URLS: ${{ secrets.NOON_DISCOVERY_URLS }}
+          AMAZON_NOW_ENABLED: "true"
+          AMAZON_YALLA_CATEGORY_RATE: "1.5"
+          AMAZON_YALLA_READ_RATE: "1.5"
+          AMAZON_YALLA_READ_TIMEOUT: "8"
         run: |
           set -Eeuo pipefail
           cd "$RUNNER_TEMP/.cache"
