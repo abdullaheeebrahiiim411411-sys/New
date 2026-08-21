@@ -1,0 +1,7 @@
+curl-cffi==0.14.0
+httpx==0.28.1
+psycopg2-binary==2.9.10
+playwright==1.55.0
+beautifulsoup4==4.13.5
+fastapi==0.115.6
+uvicorn==0.34.0

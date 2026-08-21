@@ -8,6 +8,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY render-shell/requirements.txt /tmp/requirements.txt
+RUN python -m pip install --disable-pip-version-check --no-cache-dir -r /tmp/requirements.txt \
+    && rm -f /tmp/requirements.txt
 COPY . /app
 RUN chmod 0755 /app/start.sh
 

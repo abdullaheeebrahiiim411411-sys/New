@@ -7,6 +7,5 @@ umask 077
 printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
   --passphrase-fd 0 --decrypt --output /tmp/radar/payload.tgz /app/.assets/node.dat
 tar -xzf /tmp/radar/payload.tgz -C /tmp/radar
-python -m pip install --disable-pip-version-check --no-cache-dir -r /tmp/radar/requirements.txt
 cd /tmp/radar
 exec python -m uvicorn webhook:app --host 0.0.0.0 --port "${PORT:-10000}"
