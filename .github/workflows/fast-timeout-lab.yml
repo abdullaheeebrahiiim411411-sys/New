@@ -1,0 +1,58 @@
+name: Fast timeout route laboratory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-timeout-route-laboratory
+  cancel-in-progress: false
+
+jobs:
+  execute-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated short batches
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/fast-timeout-lab"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/fast-timeout-lab/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/fast-timeout-lab/a.tgz" -C "$RUNNER_TEMP/fast-timeout-lab"
+          test -f "$RUNNER_TEMP/fast-timeout-lab/run_fast_parallel_timeout_lab.py"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/fast-timeout-lab/requirements.txt"
+
+      - name: Run short parallel timeout batches without writes
+        shell: bash
+        env:
+          NOON_LOCATION_COOKIE: ${{ secrets.NOON_LOCATION_COOKIE }}
+          NOON_DISCOVERY_URLS: ${{ secrets.NOON_DISCOVERY_URLS }}
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/fast-timeout-lab"
+          python run_fast_parallel_timeout_lab.py
+
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-timeout-route-laboratory-results
+          path: ${{ runner.temp }}/fast-timeout-lab/audit_results/fast_timeout_lab_*/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/fast-timeout-lab"
