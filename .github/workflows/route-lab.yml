@@ -1,0 +1,60 @@
+name: Route laboratory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: route-laboratory
+  cancel-in-progress: false
+
+jobs:
+  execute-read-only-lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated laboratory
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "$ARCHIVE_KEY"
+          mkdir -p "$RUNNER_TEMP/route-lab"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/route-lab/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/route-lab/a.tgz" -C "$RUNNER_TEMP/route-lab"
+          test -f "$RUNNER_TEMP/route-lab/run_40_route_lab.py"
+          test -f "$RUNNER_TEMP/route-lab/lab_40_experiment_manifest.json"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/route-lab/requirements.txt"
+
+      - name: Run read-only forty-route laboratory
+        shell: bash
+        env:
+          NOON_LOCATION_COOKIE: ${{ secrets.NOON_LOCATION_COOKIE }}
+          NOON_DISCOVERY_URLS: ${{ secrets.NOON_DISCOVERY_URLS }}
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/route-lab"
+          python run_40_route_lab.py
+
+      - name: Preserve laboratory evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: route-laboratory-results
+          path: ${{ runner.temp }}/route-lab/audit_results/route_lab_*/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/route-lab"
