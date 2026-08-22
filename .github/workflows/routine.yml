@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     # A complete scan is required to finish within one hour; retain only a
     # small preparation/cleanup margin so a stalled run cannot block service.
-    timeout-minutes: 70
+    timeout-minutes: 62
     environment: runtime
     steps:
       - name: Load context
