@@ -1,0 +1,55 @@
+name: Amazon production pipeline benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amazon-pipeline-benchmark
+  cancel-in-progress: false
+
+jobs:
+  execute-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 36
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated benchmark
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/amazon-pipeline"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/amazon-pipeline/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/amazon-pipeline/a.tgz" -C "$RUNNER_TEMP/amazon-pipeline"
+          test -f "$RUNNER_TEMP/amazon-pipeline/benchmark_amazon_production_pipeline.py"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/amazon-pipeline/requirements.txt"
+
+      - name: Benchmark exact production pipeline without writes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/amazon-pipeline"
+          python benchmark_amazon_production_pipeline.py
+
+      - name: Preserve benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-production-pipeline-benchmark-results
+          path: ${{ runner.temp }}/amazon-pipeline/audit_results/amazon_pipeline_benchmark_*/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/amazon-pipeline"
