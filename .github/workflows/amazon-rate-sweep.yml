@@ -1,0 +1,55 @@
+name: Amazon rate sweep
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amazon-rate-sweep
+  cancel-in-progress: false
+
+jobs:
+  execute-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated sweep
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/amazon-sweep"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/amazon-sweep/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/amazon-sweep/a.tgz" -C "$RUNNER_TEMP/amazon-sweep"
+          test -f "$RUNNER_TEMP/amazon-sweep/run_amazon_rate_sweep.py"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/amazon-sweep/requirements.txt"
+
+      - name: Sweep controlled Amazon cadences without writes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/amazon-sweep"
+          python run_amazon_rate_sweep.py
+
+      - name: Preserve sweep evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-rate-sweep-results
+          path: ${{ runner.temp }}/amazon-sweep/audit_results/amazon_rate_sweep_*/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/amazon-sweep"
