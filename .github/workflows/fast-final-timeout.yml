@@ -1,0 +1,59 @@
+name: Fast final timeout validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-final-timeout-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated final validation
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/fast-final-timeout"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/fast-final-timeout/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/fast-final-timeout/a.tgz" -C "$RUNNER_TEMP/fast-final-timeout"
+          test -f "$RUNNER_TEMP/fast-final-timeout/fast_final_timeout_manifest.json"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/fast-final-timeout/requirements.txt"
+
+      - name: Run short final validation without writes
+        shell: bash
+        env:
+          NOON_LOCATION_COOKIE: ${{ secrets.NOON_LOCATION_COOKIE }}
+          NOON_DISCOVERY_URLS: ${{ secrets.NOON_DISCOVERY_URLS }}
+          TIMEOUT_MANIFEST: fast_final_timeout_manifest.json
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/fast-final-timeout"
+          python run_fast_parallel_timeout_lab.py
+
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-final-timeout-validation-results
+          path: ${{ runner.temp }}/fast-final-timeout/audit_results/fast_timeout_lab_*/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/fast-final-timeout"
