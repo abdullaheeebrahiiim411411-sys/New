@@ -18,8 +18,9 @@ jobs:
     # The workflow intentionally has no pull_request, pull_request_target,
     # workflow_run, issue_comment, or external repository triggers.
     runs-on: ubuntu-24.04
-    # Keep the entire production scan within the agreed 90-minute ceiling.
-    timeout-minutes: 90
+    # A complete scan is required to finish within one hour; retain only a
+    # small preparation/cleanup margin so a stalled run cannot block service.
+    timeout-minutes: 70
     environment: runtime
     steps:
       - name: Load context
