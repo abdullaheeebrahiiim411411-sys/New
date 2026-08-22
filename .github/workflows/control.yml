@@ -46,9 +46,9 @@ jobs:
           # التوليفة المثبتة في اختبار 500 منتج؛ تمنع تراجع مهلات Amazon.
           AMAZON_CONCURRENCY: "12"
           AMAZON_OTHAIM_READ_RATE: "2"
-          AMAZON_OTHAIM_READ_TIMEOUT: "15"
-          AMAZON_PRIMARY_TIMEOUT_SECONDS: "12"
-          AMAZON_RECOVERY_TIMEOUT_SECONDS: "12"
+          AMAZON_OTHAIM_READ_TIMEOUT: "6"
+          AMAZON_PRIMARY_TIMEOUT_SECONDS: "6"
+          AMAZON_RECOVERY_TIMEOUT_SECONDS: "6"
         run: |
           set -Eeuo pipefail
           cd "$RUNNER_TEMP/.cache"
