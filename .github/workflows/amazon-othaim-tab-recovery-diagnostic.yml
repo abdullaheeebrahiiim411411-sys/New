@@ -1,0 +1,56 @@
+name: Amazon Othaim tab recovery diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amazon-othaim-tab-recovery-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated diagnostic
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/amazon-othaim-tab-recovery"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/amazon-othaim-tab-recovery/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/amazon-othaim-tab-recovery/a.tgz" -C "$RUNNER_TEMP/amazon-othaim-tab-recovery"
+          test -f "$RUNNER_TEMP/amazon-othaim-tab-recovery/scanner.py"
+          cp diagnostics/amazon_othaim_tab_recovery_diagnostic.py "$RUNNER_TEMP/amazon-othaim-tab-recovery/"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/amazon-othaim-tab-recovery/requirements.txt"
+
+      - name: Test bounded tab recovery without writes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/amazon-othaim-tab-recovery"
+          python amazon_othaim_tab_recovery_diagnostic.py
+
+      - name: Preserve diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-othaim-tab-recovery-diagnostic-results
+          path: ${{ runner.temp }}/amazon-othaim-tab-recovery/audit_results/amazon_othaim_tab_recovery_*/results.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/amazon-othaim-tab-recovery"
