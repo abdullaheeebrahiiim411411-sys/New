@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -26,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 import scanner  # noqa: E402
 
 SAMPLE_SIZE = 300
-REQUEST_RATE = 1.5
+REQUEST_RATE = float(os.getenv("AMAZON_DIAGNOSTIC_RATE", "1.5"))
 WORKERS = 12
 TIMEOUT_SECONDS = 6.0
 TRANSPORT = "v1"

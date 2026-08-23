@@ -2,6 +2,11 @@ name: Amazon 503-only recovery validation
 
 on:
   workflow_dispatch:
+    inputs:
+      rate:
+        description: 'Amazon request starts per second for the read-only validation'
+        required: true
+        default: '1.5'
 
 permissions:
   contents: read
@@ -36,6 +41,8 @@ jobs:
 
       - name: Validate technical-only recovery without writes
         shell: bash
+        env:
+          AMAZON_DIAGNOSTIC_RATE: ${{ inputs.rate }}
         run: |
           set -Eeuo pipefail
           cd "$RUNNER_TEMP/amazon-503-only-recovery"
