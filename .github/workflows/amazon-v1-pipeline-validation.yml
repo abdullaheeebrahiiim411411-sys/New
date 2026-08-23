@@ -1,0 +1,56 @@
+name: Amazon HTTP1 pipeline validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amazon-v1-pipeline-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: runtime
+    steps:
+      - name: Load context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated validation
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/amazon-v1-validation"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$RUNNER_TEMP/amazon-v1-validation/a.tgz" .assets/node.dat
+          tar -xzf "$RUNNER_TEMP/amazon-v1-validation/a.tgz" -C "$RUNNER_TEMP/amazon-v1-validation"
+          test -f "$RUNNER_TEMP/amazon-v1-validation/scanner.py"
+          cp diagnostics/amazon_v1_pipeline_validation.py "$RUNNER_TEMP/amazon-v1-validation/"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$RUNNER_TEMP/amazon-v1-validation/requirements.txt"
+
+      - name: Validate candidate transport without writes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/amazon-v1-validation"
+          python amazon_v1_pipeline_validation.py
+
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-v1-pipeline-validation-results
+          path: ${{ runner.temp }}/amazon-v1-validation/audit_results/amazon_v1_pipeline_validation_*/results.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/amazon-v1-validation"
