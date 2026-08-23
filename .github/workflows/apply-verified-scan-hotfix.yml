@@ -1,0 +1,176 @@
+name: Apply verified scan hotfix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: runtime
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: true
+
+      - name: Patch, validate, and repack payload
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "$ARCHIVE_KEY"
+          work="$RUNNER_TEMP/nowminutes-hotfix"
+          mkdir -p "$work/payload"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
+          tar -xzf "$work/payload.tgz" -C "$work/payload"
+          test -f "$work/payload/scanner.py"
+
+          PAYLOAD_DIR="$work/payload" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["PAYLOAD_DIR"]) / "scanner.py"
+          source = path.read_text(encoding="utf-8")
+
+          old_noon = '''    for script in soup.select('script[type="application/ld+json"], script[type="application/json"], script#__NEXT_DATA__'):
+          raw = script.string or script.get_text() or ""
+          try:
+              found = walk(json.loads(raw))
+          except (TypeError, ValueError, json.JSONDecodeError):
+              found = None
+          if found:
+              return found
+      return None
+      '''
+          new_noon = '''    for script in soup.select('script[type="application/ld+json"], script[type="application/json"], script#__NEXT_DATA__'):
+          raw = script.string or script.get_text() or ""
+          try:
+              found = walk(json.loads(raw))
+          except (TypeError, ValueError, json.JSONDecodeError):
+              found = None
+          if found:
+              return found
+
+      # Parse only the SSR assignment object that contains the requested SKU.
+      # This never executes page JavaScript or accepts a page-wide/recommended price.
+      def object_literal_after(raw: str, assignment: int) -> str:
+          brace = raw.find("{", assignment)
+          if brace < 0:
+              return ""
+          depth, quote, escaped = 0, "", False
+          for index in range(brace, len(raw)):
+              char = raw[index]
+              if quote:
+                  if escaped:
+                      escaped = False
+                  elif char == "\\\\":
+                      escaped = True
+                  elif char == quote:
+                      quote = ""
+                  continue
+              if char in {"'", '\"'}:
+                  quote = char
+              elif char == "{":
+                  depth += 1
+              elif char == "}":
+                  depth -= 1
+                  if depth == 0:
+                      return raw[brace:index + 1]
+          return ""
+
+      target_token = re.compile(
+          rf"(?:sku|skuCode|productSku)\\s*:\\s*['\\\"]{re.escape(target)}['\\\"]",
+          flags=re.I,
+      )
+      for script in soup.select('script'):
+          raw = script.string or script.get_text() or ""
+          for matched in target_token.finditer(raw):
+              assignment = raw.rfind("={", 0, matched.start())
+              literal = object_literal_after(raw, assignment) if assignment >= 0 else ""
+              if not literal or not target_token.search(literal):
+                  continue
+              if re.search(r"(?:isBuyable|is_buyable)\\s*:\\s*(?:false|!1)", literal, flags=re.I):
+                  continue
+              name_match = re.search(r'(?:title|name)\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"', literal, flags=re.I)
+              price = None
+              for price_key in ("offerPrice", "salePrice", "nowPrice", "price"):
+                  price_match = re.search(
+                      rf"{price_key}\\s*:\\s*['\\\"]?([0-9][0-9.,]*)",
+                      literal,
+                      flags=re.I,
+                  )
+                  if price_match:
+                      price = decimal_or_none(price_match.group(1))
+                      if price:
+                          break
+              if not name_match or not price:
+                  continue
+              try:
+                  name = clean_text(json.loads(f'"{name_match.group(1)}"'))
+              except (TypeError, ValueError, json.JSONDecodeError):
+                  name = clean_text(name_match.group(1))
+              if price and len(name) >= 3:
+                  return name, price
+      return None
+      '''
+
+          old_amazon = '''def amazon_retryable_failure(reason: str) -> bool:
+          """Retry transient Amazon protection or transport failures, not explicit unavailability."""
+          value = (reason or "").lower()
+          # A transport timeout, a protection status, an unavailable local card or a
+          # challenge is terminal for this cycle. Retrying later would make a rejected
+          # product delay the complete catalog and violate the explicit item budget.
+          # Every new cycle starts a fresh official read for every stored ASIN.
+          return False
+      '''
+          new_amazon = '''def amazon_retryable_failure(reason: str) -> bool:
+          """Retry only bounded transient Amazon failures; never retry unavailable items."""
+          value = (reason or "").upper()
+          return bool(
+              "_TRANSPORT:" in value
+              or "_CHALLENGE" in value
+              or re.search(r"_HTTP:(?:429|5\\d{2})", value)
+          )
+      '''
+
+          if old_noon not in source or old_amazon not in source:
+              raise SystemExit("payload base revision did not match the verified hotfix")
+          source = source.replace(old_noon, new_noon, 1).replace(old_amazon, new_amazon, 1)
+          path.write_text(source, encoding="utf-8")
+          PY
+
+          cd "$work/payload"
+          python -m py_compile scanner.py
+          python - <<'PY'
+          import scanner
+          target = "ZTARGET-1"
+          valid = f'''<html><body>{target}<script id="$tsr-stream-barrier">$R[1]={{catalog:$R[2]={{sku:"{target}",title:"حليب هدف موثق",isBuyable:!0,price:29.95,offerPrice:25.65}}}};</script></body></html>'''
+          name, price = scanner.extract_noon_target_page_fields(valid, target) or (None, None)
+          assert name == "حليب هدف موثق" and str(price) == "25.65"
+          suggested = f'''<html><body>{target}<script>$R[1]={{catalog:$R[2]={{sku:"ZOTHER-1",title:"مقترح",isBuyable:!0,offerPrice:1.99}}}};</script></body></html>'''
+          assert scanner.extract_noon_target_page_fields(suggested, target) is None
+          assert scanner.amazon_retryable_failure("OTHAIM_ARABIC_ASIN_HTTP:503")
+          assert not scanner.amazon_retryable_failure("OTHAIM_ASIN_NOT_FOUND")
+          PY
+          tar -czf "$work/updated.tgz" -C "$work/payload" .
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 --digest-algo SHA512 \
+            --output "$GITHUB_WORKSPACE/.assets/node.dat" "$work/updated.tgz"
+          rm -rf "$work"
+
+      - name: Commit payload and remove transient workflow
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "nowminutes-release"
+          git config user.email "nowminutes-release@users.noreply.github.com"
+          rm .github/workflows/apply-verified-scan-hotfix.yml
+          git add .assets/node.dat .github/workflows/apply-verified-scan-hotfix.yml
+          git commit -m "Restore verified Noon fallback and bounded Amazon recovery"
+          git push origin HEAD:main
