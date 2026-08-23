@@ -45,7 +45,7 @@ jobs:
           AMAZON_YALLA_READ_TIMEOUT: "8"
           # التوليفة المثبتة في اختبار 500 منتج؛ تمنع تراجع مهلات Amazon.
           AMAZON_CONCURRENCY: "12"
-          AMAZON_OTHAIM_READ_RATE: "2"
+          AMAZON_OTHAIM_READ_RATE: "1.6"
           AMAZON_OTHAIM_READ_TIMEOUT: "6"
           AMAZON_PRIMARY_TIMEOUT_SECONDS: "6"
           AMAZON_RECOVERY_TIMEOUT_SECONDS: "6"
