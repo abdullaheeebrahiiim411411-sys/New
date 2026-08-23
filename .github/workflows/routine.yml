@@ -55,6 +55,7 @@ jobs:
           AMAZON_YALLA_READ_TIMEOUT: "8"
           # مثبتة بقياس 500 منتج: رفعها إلى 20/3.5 خفّض الكفاءة بكثرة مهلات النقل.
           AMAZON_CONCURRENCY: "12"
+          AMAZON_OFFICIAL_RATE: "2"
           AMAZON_OTHAIM_READ_RATE: "2"
           AMAZON_OTHAIM_READ_TIMEOUT: "6"
           AMAZON_PRIMARY_TIMEOUT_SECONDS: "6"
