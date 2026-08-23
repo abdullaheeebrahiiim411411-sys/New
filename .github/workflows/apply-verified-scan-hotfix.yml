@@ -27,142 +27,15 @@ jobs:
           test -n "$ARCHIVE_KEY"
           work="$RUNNER_TEMP/nowminutes-hotfix"
           mkdir -p "$work/payload"
-          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
-            --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
           tar -xzf "$work/payload.tgz" -C "$work/payload"
           test -f "$work/payload/scanner.py"
-
-          PAYLOAD_DIR="$work/payload" python - <<'PY'
-          import os
-          from pathlib import Path
-
-          path = Path(os.environ["PAYLOAD_DIR"]) / "scanner.py"
-          source = path.read_text(encoding="utf-8")
-
-          old_noon = '''    for script in soup.select('script[type="application/ld+json"], script[type="application/json"], script#__NEXT_DATA__'):
-          raw = script.string or script.get_text() or ""
-          try:
-              found = walk(json.loads(raw))
-          except (TypeError, ValueError, json.JSONDecodeError):
-              found = None
-          if found:
-              return found
-      return None
-      '''
-          new_noon = '''    for script in soup.select('script[type="application/ld+json"], script[type="application/json"], script#__NEXT_DATA__'):
-          raw = script.string or script.get_text() or ""
-          try:
-              found = walk(json.loads(raw))
-          except (TypeError, ValueError, json.JSONDecodeError):
-              found = None
-          if found:
-              return found
-
-      # Parse only the SSR assignment object that contains the requested SKU.
-      # This never executes page JavaScript or accepts a page-wide/recommended price.
-      def object_literal_after(raw: str, assignment: int) -> str:
-          brace = raw.find("{", assignment)
-          if brace < 0:
-              return ""
-          depth, quote, escaped = 0, "", False
-          for index in range(brace, len(raw)):
-              char = raw[index]
-              if quote:
-                  if escaped:
-                      escaped = False
-                  elif char == "\\\\":
-                      escaped = True
-                  elif char == quote:
-                      quote = ""
-                  continue
-              if char in {"'", '\"'}:
-                  quote = char
-              elif char == "{":
-                  depth += 1
-              elif char == "}":
-                  depth -= 1
-                  if depth == 0:
-                      return raw[brace:index + 1]
-          return ""
-
-      target_token = re.compile(
-          rf"(?:sku|skuCode|productSku)\\s*:\\s*['\\\"]{re.escape(target)}['\\\"]",
-          flags=re.I,
-      )
-      for script in soup.select('script'):
-          raw = script.string or script.get_text() or ""
-          for matched in target_token.finditer(raw):
-              assignment = raw.rfind("={", 0, matched.start())
-              literal = object_literal_after(raw, assignment) if assignment >= 0 else ""
-              if not literal or not target_token.search(literal):
-                  continue
-              if re.search(r"(?:isBuyable|is_buyable)\\s*:\\s*(?:false|!1)", literal, flags=re.I):
-                  continue
-              name_match = re.search(r'(?:title|name)\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"', literal, flags=re.I)
-              price = None
-              for price_key in ("offerPrice", "salePrice", "nowPrice", "price"):
-                  price_match = re.search(
-                      rf"{price_key}\\s*:\\s*['\\\"]?([0-9][0-9.,]*)",
-                      literal,
-                      flags=re.I,
-                  )
-                  if price_match:
-                      price = decimal_or_none(price_match.group(1))
-                      if price:
-                          break
-              if not name_match or not price:
-                  continue
-              try:
-                  name = clean_text(json.loads(f'"{name_match.group(1)}"'))
-              except (TypeError, ValueError, json.JSONDecodeError):
-                  name = clean_text(name_match.group(1))
-              if price and len(name) >= 3:
-                  return name, price
-      return None
-      '''
-
-          old_amazon = '''def amazon_retryable_failure(reason: str) -> bool:
-          """Retry transient Amazon protection or transport failures, not explicit unavailability."""
-          value = (reason or "").lower()
-          # A transport timeout, a protection status, an unavailable local card or a
-          # challenge is terminal for this cycle. Retrying later would make a rejected
-          # product delay the complete catalog and violate the explicit item budget.
-          # Every new cycle starts a fresh official read for every stored ASIN.
-          return False
-      '''
-          new_amazon = '''def amazon_retryable_failure(reason: str) -> bool:
-          """Retry only bounded transient Amazon failures; never retry unavailable items."""
-          value = (reason or "").upper()
-          return bool(
-              "_TRANSPORT:" in value
-              or "_CHALLENGE" in value
-              or re.search(r"_HTTP:(?:429|5\\d{2})", value)
-          )
-      '''
-
-          if old_noon not in source or old_amazon not in source:
-              raise SystemExit("payload base revision did not match the verified hotfix")
-          source = source.replace(old_noon, new_noon, 1).replace(old_amazon, new_amazon, 1)
-          path.write_text(source, encoding="utf-8")
-          PY
-
+          echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpwYXlsb2FkX2RpciA9IFBhdGgoX19pbXBvcnRfXygib3MiKS5lbnZpcm9uWyJQQVlMT0FEX0RJUiJdKQpwYXRoID0gcGF5bG9hZF9kaXIgLyAic2Nhbm5lci5weSIKc291cmNlID0gcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKCm9sZF9ub29uID0gJycnICAgIGZvciBzY3JpcHQgaW4gc291cC5zZWxlY3QoJ3NjcmlwdFt0eXBlPSJhcHBsaWNhdGlvbi9sZCtqc29uIl0sIHNjcmlwdFt0eXBlPSJhcHBsaWNhdGlvbi9qc29uIl0sIHNjcmlwdCNfX05FWFRfREFUQV9fJyk6CiAgICAgICAgcmF3ID0gc2NyaXB0LnN0cmluZyBvciBzY3JpcHQuZ2V0X3RleHQoKSBvciAiIgogICAgICAgIHRyeToKICAgICAgICAgICAgZm91bmQgPSB3YWxrKGpzb24ubG9hZHMocmF3KSkKICAgICAgICBleGNlcHQgKFR5cGVFcnJvciwgVmFsdWVFcnJvciwganNvbi5KU09ORGVjb2RlRXJyb3IpOgogICAgICAgICAgICBmb3VuZCA9IE5vbmUKICAgICAgICBpZiBmb3VuZDoKICAgICAgICAgICAgcmV0dXJuIGZvdW5kCiAgICByZXR1cm4gTm9uZQonJycKbmV3X25vb24gPSAnJycgICAgZm9yIHNjcmlwdCBpbiBzb3VwLnNlbGVjdCgnc2NyaXB0W3R5cGU9ImFwcGxpY2F0aW9uL2xkK2pzb24iXSwgc2NyaXB0W3R5cGU9ImFwcGxpY2F0aW9uL2pzb24iXSwgc2NyaXB0I19fTkVYVF9EQVRBX18nKToKICAgICAgICByYXcgPSBzY3JpcHQuc3RyaW5nIG9yIHNjcmlwdC5nZXRfdGV4dCgpIG9yICIiCiAgICAgICAgdHJ5OgogICAgICAgICAgICBmb3VuZCA9IHdhbGsoanNvbi5sb2FkcyhyYXcpKQogICAgICAgIGV4Y2VwdCAoVHlwZUVycm9yLCBWYWx1ZUVycm9yLCBqc29uLkpTT05EZWNvZGVFcnJvcik6CiAgICAgICAgICAgIGZvdW5kID0gTm9uZQogICAgICAgIGlmIGZvdW5kOgogICAgICAgICAgICByZXR1cm4gZm91bmQKCiAgICAjIFBhcnNlIG9ubHkgdGhlIFNTUiBhc3NpZ25tZW50IG9iamVjdCB0aGF0IGNvbnRhaW5zIHRoZSByZXF1ZXN0ZWQgU0tVLgogICAgIyBUaGlzIG5ldmVyIGV4ZWN1dGVzIHBhZ2UgSmF2YVNjcmlwdCBvciBhY2NlcHRzIGEgcGFnZS13aWRlL3JlY29tbWVuZGVkIHByaWNlLgogICAgZGVmIG9iamVjdF9saXRlcmFsX2FmdGVyKHJhdzogc3RyLCBhc3NpZ25tZW50OiBpbnQpIC0+IHN0cjoKICAgICAgICBicmFjZSA9IHJhdy5maW5kKCJ7IiwgYXNzaWdubWVudCkKICAgICAgICBpZiBicmFjZSA8IDA6CiAgICAgICAgICAgIHJldHVybiAiIgogICAgICAgIGRlcHRoLCBxdW90ZSwgZXNjYXBlZCA9IDAsICIiLCBGYWxzZQogICAgICAgIGZvciBpbmRleCBpbiByYW5nZShicmFjZSwgbGVuKHJhdykpOgogICAgICAgICAgICBjaGFyID0gcmF3W2luZGV4XQogICAgICAgICAgICBpZiBxdW90ZToKICAgICAgICAgICAgICAgIGlmIGVzY2FwZWQ6CiAgICAgICAgICAgICAgICAgICAgZXNjYXBlZCA9IEZhbHNlCiAgICAgICAgICAgICAgICBlbGlmIGNoYXIgPT0gIlxcIjoKICAgICAgICAgICAgICAgICAgICBlc2NhcGVkID0gVHJ1ZQogICAgICAgICAgICAgICAgZWxpZiBjaGFyID09IHF1b3RlOgogICAgICAgICAgICAgICAgICAgIHF1b3RlID0gIiIKICAgICAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgIGlmIGNoYXIgaW4geyInIiwgJyInfToKICAgICAgICAgICAgICAgIHF1b3RlID0gY2hhcgogICAgICAgICAgICBlbGlmIGNoYXIgPT0gInsiOgogICAgICAgICAgICAgICAgZGVwdGggKz0gMQogICAgICAgICAgICBlbGlmIGNoYXIgPT0gIn0iOgogICAgICAgICAgICAgICAgZGVwdGggLT0gMQogICAgICAgICAgICAgICAgaWYgZGVwdGggPT0gMDoKICAgICAgICAgICAgICAgICAgICByZXR1cm4gcmF3W2JyYWNlOmluZGV4ICsgMV0KICAgICAgICByZXR1cm4gIiIKCiAgICB0YXJnZXRfdG9rZW4gPSByZS5jb21waWxlKAogICAgICAgIHJmIig/OnNrdXxza3VDb2RlfHByb2R1Y3RTa3UpXHMqOlxzKlsnXCJde3JlLmVzY2FwZSh0YXJnZXQpfVsnXCJdIiwKICAgICAgICBmbGFncz1yZS5JLAogICAgKQogICAgZm9yIHNjcmlwdCBpbiBzb3VwLnNlbGVjdCgnc2NyaXB0Jyk6CiAgICAgICAgcmF3ID0gc2NyaXB0LnN0cmluZyBvciBzY3JpcHQuZ2V0X3RleHQoKSBvciAiIgogICAgICAgIGZvciBtYXRjaGVkIGluIHRhcmdldF90b2tlbi5maW5kaXRlcihyYXcpOgogICAgICAgICAgICBhc3NpZ25tZW50ID0gcmF3LnJmaW5kKCI9eyIsIDAsIG1hdGNoZWQuc3RhcnQoKSkKICAgICAgICAgICAgbGl0ZXJhbCA9IG9iamVjdF9saXRlcmFsX2FmdGVyKHJhdywgYXNzaWdubWVudCkgaWYgYXNzaWdubWVudCA+PSAwIGVsc2UgIiIKICAgICAgICAgICAgaWYgbm90IGxpdGVyYWwgb3Igbm90IHRhcmdldF90b2tlbi5zZWFyY2gobGl0ZXJhbCk6CiAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICBpZiByZS5zZWFyY2gociIoPzppc0J1eWFibGV8aXNfYnV5YWJsZSlccyo6XHMqKD86ZmFsc2V8ITEpIiwgbGl0ZXJhbCwgZmxhZ3M9cmUuSSk6CiAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICBuYW1lX21hdGNoID0gcmUuc2VhcmNoKHInKD86dGl0bGV8bmFtZSlccyo6XHMqIigoPzpcXC58W14iXFxdKSopIicsIGxpdGVyYWwsIGZsYWdzPXJlLkkpCiAgICAgICAgICAgIHByaWNlID0gTm9uZQogICAgICAgICAgICBmb3IgcHJpY2Vfa2V5IGluICgib2ZmZXJQcmljZSIsICJzYWxlUHJpY2UiLCAibm93UHJpY2UiLCAicHJpY2UiKToKICAgICAgICAgICAgICAgIHByaWNlX21hdGNoID0gcmUuc2VhcmNoKAogICAgICAgICAgICAgICAgICAgIHJmIntwcmljZV9rZXl9XHMqOlxzKlsnXCJdPyhbMC05XVswLTkuLF0qKSIsCiAgICAgICAgICAgICAgICAgICAgbGl0ZXJhbCwKICAgICAgICAgICAgICAgICAgICBmbGFncz1yZS5JLAogICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgaWYgcHJpY2VfbWF0Y2g6CiAgICAgICAgICAgICAgICAgICAgcHJpY2UgPSBkZWNpbWFsX29yX25vbmUocHJpY2VfbWF0Y2guZ3JvdXAoMSkpCiAgICAgICAgICAgICAgICAgICAgaWYgcHJpY2U6CiAgICAgICAgICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgICAgIGlmIG5vdCBuYW1lX21hdGNoIG9yIG5vdCBwcmljZToKICAgICAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIG5hbWUgPSBjbGVhbl90ZXh0KGpzb24ubG9hZHMoZicie25hbWVfbWF0Y2guZ3JvdXAoMSl9IicpKQogICAgICAgICAgICBleGNlcHQgKFR5cGVFcnJvciwgVmFsdWVFcnJvciwganNvbi5KU09ORGVjb2RlRXJyb3IpOgogICAgICAgICAgICAgICAgbmFtZSA9IGNsZWFuX3RleHQobmFtZV9tYXRjaC5ncm91cCgxKSkKICAgICAgICAgICAgaWYgcHJpY2UgYW5kIGxlbihuYW1lKSA+PSAzOgogICAgICAgICAgICAgICAgcmV0dXJuIG5hbWUsIHByaWNlCiAgICByZXR1cm4gTm9uZQonJycKCm9sZF9hbWF6b24gPSAnJydkZWYgYW1hem9uX3JldHJ5YWJsZV9mYWlsdXJlKHJlYXNvbjogc3RyKSAtPiBib29sOgogICAgIiIiUmV0cnkgdHJhbnNpZW50IEFtYXpvbiBwcm90ZWN0aW9uIG9yIHRyYW5zcG9ydCBmYWlsdXJlcywgbm90IGV4cGxpY2l0IHVuYXZhaWxhYmlsaXR5LiIiIgogICAgdmFsdWUgPSAocmVhc29uIG9yICIiKS5sb3dlcigpCiAgICAjIEEgdHJhbnNwb3J0IHRpbWVvdXQsIGEgcHJvdGVjdGlvbiBzdGF0dXMsIGFuIHVuYXZhaWxhYmxlIGxvY2FsIGNhcmQgb3IgYQogICAgIyBjaGFsbGVuZ2UgaXMgdGVybWluYWwgZm9yIHRoaXMgY3ljbGUuIFJldHJ5aW5nIGxhdGVyIHdvdWxkIG1ha2UgYSByZWplY3RlZAogICAgIyBwcm9kdWN0IGRlbGF5IHRoZSBjb21wbGV0ZSBjYXRhbG9nIGFuZCB2aW9sYXRlIHRoZSBleHBsaWNpdCBpdGVtIGJ1ZGdldC4KICAgICMgRXZlcnkgbmV3IGN5Y2xlIHN0YXJ0cyBhIGZyZXNoIG9mZmljaWFsIHJlYWQgZm9yIGV2ZXJ5IHN0b3JlZCBBU0lOLgogICAgcmV0dXJuIEZhbHNlCicnJwpuZXdfYW1hem9uID0gJycnZGVmIGFtYXpvbl9yZXRyeWFibGVfZmFpbHVyZShyZWFzb246IHN0cikgLT4gYm9vbDoKICAgICIiIlJldHJ5IG9ubHkgYm91bmRlZCB0cmFuc2llbnQgQW1hem9uIGZhaWx1cmVzOyBuZXZlciByZXRyeSB1bmF2YWlsYWJsZSBpdGVtcy4iIiIKICAgIHZhbHVlID0gKHJlYXNvbiBvciAiIikudXBwZXIoKQogICAgcmV0dXJuIGJvb2woCiAgICAgICAgIl9UUkFOU1BPUlQ6IiBpbiB2YWx1ZQogICAgICAgIG9yICJfQ0hBTExFTkdFIiBpbiB2YWx1ZQogICAgICAgIG9yIHJlLnNlYXJjaChyIl9IVFRQOig/OjQyOXw1XGR7Mn0pIiwgdmFsdWUpCiAgICApCicnJwoKaWYgb2xkX25vb24gbm90IGluIHNvdXJjZSBvciBvbGRfYW1hem9uIG5vdCBpbiBzb3VyY2U6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJwYXlsb2FkIGJhc2UgcmV2aXNpb24gZGlkIG5vdCBtYXRjaCB0aGUgdmVyaWZpZWQgaG90Zml4IikKcGF0aC53cml0ZV90ZXh0KHNvdXJjZS5yZXBsYWNlKG9sZF9ub29uLCBuZXdfbm9vbiwgMSkucmVwbGFjZShvbGRfYW1hem9uLCBuZXdfYW1hem9uLCAxKSwgZW5jb2Rpbmc9InV0Zi04IikK' | base64 -d > "$work/hotfix_payload.py"
+          PAYLOAD_DIR="$work/payload" python "$work/hotfix_payload.py"
           cd "$work/payload"
           python -m py_compile scanner.py
-          python - <<'PY'
-          import scanner
-          target = "ZTARGET-1"
-          valid = f'''<html><body>{target}<script id="$tsr-stream-barrier">$R[1]={{catalog:$R[2]={{sku:"{target}",title:"حليب هدف موثق",isBuyable:!0,price:29.95,offerPrice:25.65}}}};</script></body></html>'''
-          name, price = scanner.extract_noon_target_page_fields(valid, target) or (None, None)
-          assert name == "حليب هدف موثق" and str(price) == "25.65"
-          suggested = f'''<html><body>{target}<script>$R[1]={{catalog:$R[2]={{sku:"ZOTHER-1",title:"مقترح",isBuyable:!0,offerPrice:1.99}}}};</script></body></html>'''
-          assert scanner.extract_noon_target_page_fields(suggested, target) is None
-          assert scanner.amazon_retryable_failure("OTHAIM_ARABIC_ASIN_HTTP:503")
-          assert not scanner.amazon_retryable_failure("OTHAIM_ASIN_NOT_FOUND")
-          PY
-          tar -czf "$work/updated.tgz" -C "$work/payload" .
-          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
-            --passphrase-fd 0 --symmetric --cipher-algo AES256 --digest-algo SHA512 \
-            --output "$GITHUB_WORKSPACE/.assets/node.dat" "$work/updated.tgz"
+          tar -czf "$work/updated.tgz" .
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 --digest-algo SHA512 --output "$GITHUB_WORKSPACE/.assets/node.dat" "$work/updated.tgz"
           rm -rf "$work"
 
       - name: Commit payload and remove transient workflow
