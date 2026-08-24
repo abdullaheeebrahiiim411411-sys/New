@@ -1,0 +1,52 @@
+name: Apply Amazon same-session recovery and time guard
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-amazon-same-session-time-guard
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: runtime
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: true
+      - name: Patch and repack verified payload
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "$ARCHIVE_KEY"
+          work="$RUNNER_TEMP/nowminutes-amazon-same-session"
+          mkdir -p "$work/payload"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
+          tar -xzf "$work/payload.tgz" -C "$work/payload"
+          PAYLOAD_DIR="$work/payload" python .assets/apply_amazon_same_session_time_guard.py
+          python -m py_compile "$work/payload/scanner.py"
+          tar -czf "$work/updated.tgz" -C "$work/payload" .
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 --digest-algo SHA512 \
+            --output "$GITHUB_WORKSPACE/.assets/node.dat" "$work/updated.tgz"
+          rm -rf "$work"
+      - name: Commit payload and remove transient assets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "nowminutes-release"
+          git config user.email "nowminutes-release@users.noreply.github.com"
+          rm .github/workflows/apply-amazon-same-session-time-guard.yml .assets/apply_amazon_same_session_time_guard.py
+          git add .assets/node.dat
+          git add -u .github/workflows/apply-amazon-same-session-time-guard.yml .assets/apply_amazon_same_session_time_guard.py
+          git commit -m "Restore bounded Amazon recovery and closeout guard"
+          git push origin HEAD:main
