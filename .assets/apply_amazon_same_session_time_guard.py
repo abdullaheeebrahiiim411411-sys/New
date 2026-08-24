@@ -7,12 +7,6 @@ scanner_path = Path(os.environ["PAYLOAD_DIR"]) / "scanner.py"
 text = scanner_path.read_text(encoding="utf-8")
 replacements = (
     (
-        '    # price, and a matching fresh-session confirmation. After an Arabic technical\n'
-        '    # failure, the Othaim-tab exact-ASIN fallback receives its own fresh HTTP/1\n'
-        '    # session; a normal empty result remains terminal.\n',
-        '    # price, and a matching fresh-session confirmation.\n',
-    ),
-    (
         '    for query_index, (route_name, target) in enumerate(routes[:2]):\n'
         '        await gate.wait()\n'
         '        technical_failure = False\n'
@@ -80,7 +74,7 @@ replacements = (
 )
 for old, new in replacements:
     if text.count(old) != 1:
-        raise RuntimeError("expected exactly one active fresh-tab/time-guard fragment")
+        raise RuntimeError("expected exactly one active fresh-tab/time-guard behavior fragment")
     text = text.replace(old, new, 1)
 if 'request_session = tab_session' in text or 'tab_session.close' in text:
     raise RuntimeError("same-session rollback verification failed")
