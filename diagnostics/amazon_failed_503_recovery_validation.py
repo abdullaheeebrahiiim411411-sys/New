@@ -15,6 +15,9 @@ import os
 import re
 import sys
 import time
+from urllib.parse import quote_plus
+
+from bs4 import BeautifulSoup
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -143,6 +146,47 @@ async def main() -> None:
         elif not matched(first[asin], second[asin]):
             reasons["CONFIRM:MISMATCH"] += 1
 
+    # Diagnostic evidence only: inspect a small bounded subset of exact-ASIN
+    # cards that the strict reader classified as not-found. The evidence records
+    # no full HTML and does not alter acceptance; it exists solely to detect a
+    # markup-marker change before any policy change is considered.
+    notfound_evidence = []
+    notfound_asins = [
+        asin for asin in sample
+        if first[asin].reason == "OTHAIM_ASIN_NOT_FOUND"
+    ][:20]
+    for index, asin in enumerate(notfound_asins):
+        session = curl_requests.Session(impersonate="chrome", timeout=TIMEOUT_SECONDS)
+        try:
+            target = (
+                f"https://www.amazon.sa/-/ar/s?k={quote_plus(asin)}"
+                f"&fpw=alm&almBrandId={scanner.AMAZON_BRAND_ID}&page=1"
+            )
+            status, page = await asyncio.to_thread(
+                scanner._amazon_sync_get, session, target,
+                scanner.amazon_official_headers(30_000 + index), TIMEOUT_SECONDS,
+                http_version="v1",
+            )
+            cards = []
+            if status == 200:
+                soup = BeautifulSoup(page, "html.parser")
+                for card in soup.select("[data-asin]"):
+                    if str(card.get("data-asin") or "").upper().strip() != asin:
+                        continue
+                    hrefs = [str(anchor.get("href") or "")[:220] for anchor in card.select("a[href]")]
+                    cards.append({
+                        "hrefs": hrefs[:8],
+                        "has_current_local_marker": any(scanner.is_amazon_now_local_card_href(href) for href in hrefs),
+                        "has_alm_context": any("alm" in href.lower() or "othai" in href.lower() or "yalla" in href.lower() for href in hrefs),
+                        "has_title_node": bool(card.select_one("h2 span, h2 a span, [data-cy='title-recipe']")),
+                        "has_price_node": bool(card.select_one(".a-price .a-offscreen")),
+                    })
+            notfound_evidence.append({"asin": asin, "status": status, "matching_cards": cards[:3]})
+        except Exception as exc:
+            notfound_evidence.append({"asin": asin, "error": type(exc).__name__})
+        finally:
+            await asyncio.to_thread(session.close)
+
     elapsed = time.monotonic() - started
     result = {
         "mode": "read_only",
@@ -158,6 +202,7 @@ async def main() -> None:
         "projected_2809_seconds": round(elapsed * 2809 / len(sample), 2),
         "failure_reasons": dict(reasons.most_common()),
         "unaccepted_examples": [asdict(first[asin]) for asin in sample if not first[asin].ok][:15],
+        "notfound_card_evidence": notfound_evidence,
     }
     output = ROOT / "audit_results" / f"amazon_failed_503_recovery_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     output.mkdir(parents=True, exist_ok=True)
