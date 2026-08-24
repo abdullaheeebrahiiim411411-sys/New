@@ -32,14 +32,10 @@ jobs:
           tar -xzf "$work/payload.tgz" -C "$work/payload"
           PAYLOAD_DIR="$work/payload" python .assets/apply_amazon_closeout_margin.py
           python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/payload/requirements.txt"
-          cp test_cycle_compliance_guard.py "$work/payload/"
-          cp tests/test_amazon_othaim_technical_recovery.py "$work/payload/"
-          cp tests/test_amazon_confirmation_pipeline.py "$work/payload/"
+          cp .assets/validate_amazon_closeout_margin.py "$work/"
           cd "$work/payload"
           python -m py_compile scanner.py
-          python test_cycle_compliance_guard.py
-          python tests/test_amazon_othaim_technical_recovery.py
-          python tests/test_amazon_confirmation_pipeline.py
+          PAYLOAD_DIR="$work/payload" python "$work/validate_amazon_closeout_margin.py"
           tar -czf "$work/updated.tgz" -C "$work/payload" .
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --symmetric --cipher-algo AES256 \
