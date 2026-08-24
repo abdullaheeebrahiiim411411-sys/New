@@ -10,8 +10,8 @@ import scanner  # noqa: E402
 
 assert scanner.AMAZON_CLOSEOUT_RESERVE_SECONDS == 180.0
 assert scanner.validate_cycle_compliance(
-    scanner.StoreStats(discovered=2809, accepted=1967, rejected=842),
-    scanner.StoreStats(discovered=3942, accepted=2760, rejected=1182),
+    amazon=scanner.StoreStats(discovered=2809, accepted=1967, rejected=842),
+    noon=scanner.StoreStats(discovered=3942, accepted=2760, rejected=1182),
     expected_amazon=2809,
     expected_noon=3942,
     noon_source_outage=False,
