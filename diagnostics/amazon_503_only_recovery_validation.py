@@ -36,7 +36,11 @@ TRANSPORT = "v1"
 def target(asin: str, route: str) -> str:
     query = quote_plus(asin.upper())
     tail = f"k={query}&fpw=alm&almBrandId={scanner.AMAZON_BRAND_ID}&page=1"
-    return f"https://www.amazon.sa/-/ar/s?{tail}" if route == "arabic" else f"https://www.amazon.sa/s?i=othai&{tail}"
+    if route == "arabic":
+        return f"https://www.amazon.sa/-/ar/s?{tail}"
+    if route == "tab":
+        return f"https://www.amazon.sa/s?i=othai&{tail}"
+    return f"https://www.amazon.sa/s?{tail}"
 
 
 async def read_route(session, asin: str, route: str, gate: scanner.AsyncRateGate, variant: int):
@@ -74,9 +78,12 @@ def technical(reason: str) -> bool:
 async def candidate_read(session, asin: str, gate: scanner.AsyncRateGate, variant: int):
     product, reason = await read_route(session, asin, "arabic", gate, variant)
     if product or not technical(reason):
-        return product, reason, False
-    product, recovery_reason = await read_route(session, asin, "tab", gate, variant + 101)
-    return product, recovery_reason, bool(product)
+        return product, reason, "none"
+    product, reason = await read_route(session, asin, "tab", gate, variant + 101)
+    if product or not technical(reason):
+        return product, reason, "tab" if product else "none"
+    product, reason = await read_route(session, asin, "standard", gate, variant + 202)
+    return product, reason, "standard" if product else "none"
 
 
 def matches(first, second) -> bool:
@@ -136,7 +143,8 @@ async def main() -> None:
             finally:
                 await asyncio.to_thread(session.close)
         elapsed = time.monotonic() - started
-        reasons, accepted, recovered_primary, recovered_confirmation = Counter(), 0, 0, 0
+        reasons, accepted, recovered_tab_primary, recovered_tab_confirmation = Counter(), 0, 0, 0
+        recovered_standard_primary, recovered_standard_confirmation = 0, 0
         for asin in sample:
             first = primary[asin]
             if not first[0]:
@@ -145,8 +153,10 @@ async def main() -> None:
             second = confirmation.get(asin, (None, "NO_CONFIRMATION", False))
             if matches(first, second):
                 accepted += 1
-                recovered_primary += int(first[2])
-                recovered_confirmation += int(second[2])
+                recovered_tab_primary += int(first[2] == "tab")
+                recovered_tab_confirmation += int(second[2] == "tab")
+                recovered_standard_primary += int(first[2] == "standard")
+                recovered_standard_confirmation += int(second[2] == "standard")
             else:
                 reasons[f"CONFIRM:{second[1]}"] += 1
         result = {
@@ -156,8 +166,10 @@ async def main() -> None:
             "efficiency_percent": round(100 * accepted / len(sample), 2), "elapsed_seconds": round(elapsed, 2),
             "projected_2809_seconds": round(elapsed * 2809 / len(sample), 2),
             "qualifies": accepted / len(sample) >= 0.70 and elapsed * 2809 / len(sample) <= 3600,
-            "accepted_using_technical_tab_primary": recovered_primary,
-            "accepted_using_technical_tab_confirmation": recovered_confirmation,
+            "accepted_using_technical_tab_primary": recovered_tab_primary,
+            "accepted_using_technical_tab_confirmation": recovered_tab_confirmation,
+            "accepted_using_technical_standard_primary": recovered_standard_primary,
+            "accepted_using_technical_standard_confirmation": recovered_standard_confirmation,
             "failure_reasons": dict(reasons.most_common()),
         }
         output = ROOT / "audit_results" / f"amazon_503_only_recovery_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
