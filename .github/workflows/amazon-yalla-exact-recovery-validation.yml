@@ -1,0 +1,72 @@
+name: Amazon Yalla exact recovery validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      cycle_start:
+        description: 'UTC start timestamp of the failed cycle'
+        required: true
+        default: '2026-08-24T18:41:10.537578+00:00'
+      sample_size:
+        description: 'Number of prior Othaim-tab 503 ASINs to evaluate'
+        required: true
+        default: '120'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amazon-yalla-exact-recovery-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: runtime
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare isolated validation
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          work="$RUNNER_TEMP/amazon-yalla-exact-recovery"
+          mkdir -p "$work"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
+          tar -xzf "$work/payload.tgz" -C "$work"
+          test -f "$work/scanner.py"
+          cp diagnostics/amazon_yalla_exact_recovery_validation.py "$work/"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/requirements.txt"
+
+      - name: Validate exact Yalla recovery without writes
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FAILED_CYCLE_START: ${{ inputs.cycle_start }}
+          AMAZON_PIPELINE_SAMPLE_SIZE: ${{ inputs.sample_size }}
+          AMAZON_YALLA_CATEGORY_RATE: '1.5'
+          AMAZON_YALLA_READ_RATE: '1.5'
+          AMAZON_YALLA_READ_TIMEOUT: '8'
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/amazon-yalla-exact-recovery"
+          python amazon_yalla_exact_recovery_validation.py
+
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-yalla-exact-recovery-validation-results
+          path: ${{ runner.temp }}/amazon-yalla-exact-recovery/audit_results/amazon_yalla_exact_recovery_*/results.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/amazon-yalla-exact-recovery"
