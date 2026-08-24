@@ -11,6 +11,10 @@ on:
         description: 'Primary reads per browser-like session'
         required: true
         default: '8'
+      header_variant:
+        description: 'Fixed browser-header profile, or -1 for current rotation'
+        required: true
+        default: '-1'
 
 permissions:
   contents: read
@@ -48,6 +52,7 @@ jobs:
         env:
           AMAZON_DIAGNOSTIC_RATE: ${{ inputs.rate }}
           AMAZON_DIAGNOSTIC_SESSION_ROTATE: ${{ inputs.rotate_every }}
+          AMAZON_DIAGNOSTIC_HEADER_VARIANT: ${{ inputs.header_variant }}
         run: |
           set -Eeuo pipefail
           cd "$RUNNER_TEMP/amazon-exact-pipeline-rotation"

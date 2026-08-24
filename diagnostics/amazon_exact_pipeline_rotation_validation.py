@@ -24,6 +24,7 @@ import scanner  # noqa: E402
 SAMPLE_SIZE = int(os.getenv("AMAZON_PIPELINE_SAMPLE_SIZE", "300"))
 REQUEST_RATE = float(os.getenv("AMAZON_DIAGNOSTIC_RATE", "1.6"))
 ROTATE_EVERY = int(os.getenv("AMAZON_DIAGNOSTIC_SESSION_ROTATE", "8"))
+FIXED_HEADER_VARIANT = int(os.getenv("AMAZON_DIAGNOSTIC_HEADER_VARIANT", "-1"))
 WORKERS = 12
 TIMEOUT_SECONDS = 6.0
 
@@ -45,9 +46,12 @@ async def main() -> None:
     original_write = scanner.write_product
     original_progress = scanner.publish_scan_progress
     original_rotate = scanner.AMAZON_SESSION_ROTATE
+    original_headers = scanner.amazon_official_headers
     scanner.write_product = lambda *_args, **_kwargs: None
     scanner.publish_scan_progress = lambda *_args, **_kwargs: None
     scanner.AMAZON_SESSION_ROTATE = ROTATE_EVERY
+    if FIXED_HEADER_VARIANT >= 0:
+        scanner.amazon_official_headers = lambda _variant: original_headers(FIXED_HEADER_VARIANT)
     started = time.monotonic()
     try:
         stats, _alerts, failures = await scanner.scan_amazon_official_store(
@@ -59,6 +63,7 @@ async def main() -> None:
         scanner.write_product = original_write
         scanner.publish_scan_progress = original_progress
         scanner.AMAZON_SESSION_ROTATE = original_rotate
+        scanner.amazon_official_headers = original_headers
     elapsed = time.monotonic() - started
     projected = elapsed * 2809 / len(ids)
     result = {
@@ -66,6 +71,7 @@ async def main() -> None:
         "sample_size": len(ids),
         "request_rate": REQUEST_RATE,
         "session_rotate_every": ROTATE_EVERY,
+        "fixed_header_variant": FIXED_HEADER_VARIANT if FIXED_HEADER_VARIANT >= 0 else None,
         "workers": WORKERS,
         "timeout_seconds": TIMEOUT_SECONDS,
         "accepted_two_session": stats.accepted,
