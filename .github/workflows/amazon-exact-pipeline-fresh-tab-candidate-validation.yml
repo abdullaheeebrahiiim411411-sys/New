@@ -1,0 +1,70 @@
+name: Amazon exact pipeline fresh-tab candidate validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      rate:
+        description: 'Primary Amazon request starts per second for the read-only candidate validation'
+        required: true
+        default: '1.6'
+      sample_size:
+        description: 'Deterministic catalog sample size'
+        required: true
+        default: '500'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amazon-exact-pipeline-fresh-tab-candidate-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-read-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: runtime
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Prepare patched isolated candidate
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          work="$RUNNER_TEMP/amazon-exact-pipeline-fresh-tab-candidate"
+          mkdir -p "$work"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
+          tar -xzf "$work/payload.tgz" -C "$work"
+          test -f "$work/scanner.py"
+          PAYLOAD_DIR="$work" python diagnostics/apply_fresh_tab_candidate_patch.py
+          python -m py_compile "$work/scanner.py"
+          cp diagnostics/amazon_exact_pipeline_rate_validation.py "$work/"
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/requirements.txt"
+
+      - name: Validate exact patched pipeline without writes
+        shell: bash
+        env:
+          AMAZON_DIAGNOSTIC_RATE: ${{ inputs.rate }}
+          AMAZON_PIPELINE_SAMPLE_SIZE: ${{ inputs.sample_size }}
+        run: |
+          set -Eeuo pipefail
+          cd "$RUNNER_TEMP/amazon-exact-pipeline-fresh-tab-candidate"
+          python amazon_exact_pipeline_rate_validation.py
+
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-exact-pipeline-fresh-tab-candidate-validation-results
+          path: ${{ runner.temp }}/amazon-exact-pipeline-fresh-tab-candidate/audit_results/amazon_exact_pipeline_rate_*/results.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/amazon-exact-pipeline-fresh-tab-candidate"
