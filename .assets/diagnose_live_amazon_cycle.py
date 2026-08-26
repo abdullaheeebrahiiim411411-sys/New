@@ -43,6 +43,19 @@ def main() -> None:
             reasons = [{"reason": reason, "count": count} for reason, count in cur.fetchall()]
             cur.execute(
                 """
+                select owner, lease_until, updated_at, lease_until > now()
+                from runtime_leases where lease_key = 'scheduled_scan'
+                """
+            )
+            lease_row = cur.fetchone()
+            lease = None if not lease_row else {
+                "owner": str(lease_row[0] or ""),
+                "lease_until_utc": lease_row[1].isoformat() if lease_row[1] else None,
+                "updated_at_utc": lease_row[2].isoformat() if lease_row[2] else None,
+                "active": bool(lease_row[3]),
+            }
+            cur.execute(
+                """
                 select count(*),
                        count(*) filter (where price_status = 'AVAILABLE' and current_price > 0),
                        count(*) filter (where price_count >= 3 and avg_price > 0),
@@ -86,6 +99,7 @@ def main() -> None:
             "amazon": {"scanned": a_scan, "accepted": a_ok, "rejected": a_rej},
             "noon": {"scanned": n_scan, "accepted": n_ok, "rejected": n_rej},
             "amazon_reasons": reasons,
+            "scan_lease": lease,
             "amazon_history": {
                 "products_total": total,
                 "available_current": available,
