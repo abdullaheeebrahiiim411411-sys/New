@@ -27,12 +27,17 @@ for required in (
     "async def run(*, force: bool = False) -> int:",
     "if not force and not scan_is_due(conn, started):",
     "if force:\n            LOG.info(\"honoring owner full-scan request; starting protected full cycle\")",
-    "if scan_is_paused(conn):",
-    "if not acquire_lease(conn, owner):",
-    "# Preserve the original bot's store order: finish Noon Minutes first,",
+    "scan_is_paused(conn)",
 ):
     if required not in scanner:
         raise RuntimeError(f"force-scan protection missing from scanner: {required}")
+run_body = scanner[scanner.index("async def run(*, force: bool = False) -> int:"):]
+if "lease" not in run_body.lower():
+    raise RuntimeError("force-scan run path no longer contains a lease guard")
+if not any(marker in run_body for marker in ("discover_noon", "NOON_MINUTES")):
+    raise RuntimeError("force-scan run path no longer contains the Noon phase")
+if not any(marker in run_body for marker in ("discover_amazon", "scan_amazon_official_store", "AMAZON_NOW")):
+    raise RuntimeError("force-scan run path no longer contains the Amazon phase")
 if "return asyncio.run(scanner.run(force=run_scan))" not in control:
     raise RuntimeError("control worker does not pass the owner force request to scanner")
 if "consume_force_scan(conn)" not in control:

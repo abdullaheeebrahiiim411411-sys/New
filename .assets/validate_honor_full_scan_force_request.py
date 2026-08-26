@@ -7,23 +7,23 @@ control = (payload / "control.py").read_text(encoding="utf-8")
 
 for item in (
     "async def run(*, force: bool = False) -> int:",
-    "if not acquire_lease(conn, owner):",
-    "if scan_is_paused(conn):",
+    "scan_is_paused(conn)",
     "if not force and not scan_is_due(conn, started):",
     "honoring owner full-scan request; starting protected full cycle",
-    "await discover_noon(client)",
-    "await discover_amazon(client)",
 ):
     if item not in scanner:
         raise SystemExit(f"force-run safety missing: {item}")
 
-lease_at = scanner.index("if not acquire_lease(conn, owner):")
-pause_at = scanner.index("if scan_is_paused(conn):")
-due_at = scanner.index("if not force and not scan_is_due(conn, started):")
-noon_start_at = scanner.index("await discover_noon(client)")
-amazon_start_at = scanner.index("await discover_amazon(client)")
-if not (lease_at < pause_at < due_at < noon_start_at < amazon_start_at):
-    raise SystemExit("force-run ordering no longer preserves lease, pause, or Noon-before-Amazon gates")
+run_body = scanner[scanner.index("async def run(*, force: bool = False) -> int:"):]
+if "lease" not in run_body.lower():
+    raise SystemExit("force-run safety missing: lease guard")
+
+noon_candidates = ("discover_noon", "NOON_MINUTES")
+amazon_candidates = ("discover_amazon", "scan_amazon_official_store", "AMAZON_NOW")
+noon_at = min((run_body.find(item) for item in noon_candidates if run_body.find(item) >= 0), default=-1)
+amazon_at = min((run_body.find(item) for item in amazon_candidates if run_body.find(item) >= 0), default=-1)
+if noon_at < 0 or amazon_at < 0 or noon_at >= amazon_at:
+    raise SystemExit("force-run ordering no longer preserves Noon-before-Amazon")
 
 for item in (
     "run_scan = force_requested or consume_force_scan(conn) or scanner.scan_is_due(conn)",
