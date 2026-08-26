@@ -117,23 +117,38 @@ async def ensure_amazon_al_ahsa_location(session, timeout: float, variant: int) 
     return ok, reason
 
 '''
-if "def _set_amazon_al_ahsa_location(" not in source:
+block_start = '\nAMAZON_REQUIRED_CITY = "Al Ahsa"\n'
+if block_start in source:
+    start = source.index(block_start)
+    end = source.index(anchor, start)
+    source = source[:start] + "\n" + location_block + source[end:]
+else:
     source = source.replace(anchor, "\n" + location_block + anchor, 1)
 
-old_call = '''async def amazon_official_read(session, asin: str, gate: AsyncRateGate, variant: int, timeout: float) -> tuple[Optional[Product], str]:
+base_read = '''async def amazon_official_read(session, asin: str, gate: AsyncRateGate, variant: int, timeout: float) -> tuple[Optional[Product], str]:
     """Read one ASIN through a verified local card, captured Yalla context, or Golden M4."""
     seed = AMAZON_SNAPSHOT.get(str(asin).upper())
 '''
-new_call = '''async def amazon_official_read(session, asin: str, gate: AsyncRateGate, variant: int, timeout: float) -> tuple[Optional[Product], str]:
+old_guarded_read = '''async def amazon_official_read(session, asin: str, gate: AsyncRateGate, variant: int, timeout: float) -> tuple[Optional[Product], str]:
+    """Read one ASIN only after this session confirms Amazon Now in Al Ahsa."""
+    location_ok, location_reason = await ensure_amazon_al_ahsa_location(session, timeout)
+    if not location_ok:
+        return None, location_reason
+    seed = AMAZON_SNAPSHOT.get(str(asin).upper())
+'''
+new_guarded_read = '''async def amazon_official_read(session, asin: str, gate: AsyncRateGate, variant: int, timeout: float) -> tuple[Optional[Product], str]:
     """Read one ASIN only after this session confirms Amazon Now in Al Ahsa."""
     location_ok, location_reason = await ensure_amazon_al_ahsa_location(session, timeout, variant)
     if not location_ok:
         return None, location_reason
     seed = AMAZON_SNAPSHOT.get(str(asin).upper())
 '''
-if source.count(old_call) != 1:
+if base_read in source:
+    source = source.replace(base_read, new_guarded_read, 1)
+elif old_guarded_read in source:
+    source = source.replace(old_guarded_read, new_guarded_read, 1)
+elif new_guarded_read not in source:
     raise RuntimeError("Amazon official-read location insertion point not found")
-source = source.replace(old_call, new_call, 1)
 
 old_card = '''                            if title and price:
                                 return Product("AMAZON_NOW", amazon_url(asin), asin.upper(), title, price, "amazon-now-local-card-live"), "AMAZON_NOW_LOCAL_CARD_OK"
@@ -144,9 +159,10 @@ new_card = '''                            card_text = clean_text(card.get_text("
                             if title and price:
                                 return Product("AMAZON_NOW", amazon_url(asin), asin.upper(), title, price, "amazon-now-al-ahsa-local-card-live"), "AMAZON_NOW_AL_AHSA_LOCAL_CARD_OK"
 '''
-if source.count(old_card) != 1:
+if old_card in source:
+    source = source.replace(old_card, new_card, 1)
+elif new_card not in source:
     raise RuntimeError("Amazon exact-card acceptance insertion point not found")
-source = source.replace(old_card, new_card, 1)
 
 for required in (
     "AL_AHSA_CHANGE_NOT_CONFIRMED", "AL_AHSA_LABEL_MISMATCH",
