@@ -28,10 +28,13 @@ for text in forbidden_webhook:
         raise SystemExit(f"obsolete parallel path remains: {text}")
 
 noon_discovery = scanner.index("discovered_noon_ids = await discover_noon(client)")
+stored_noon_recovery = scanner.index("executing stored exact scope=%d before Amazon")
 noon_gate = scanner.index("if noon_source_outage or noon_stats.discovered <= 0:")
 amazon_discovery = scanner.index("discovered_amazon_ids = await discover_amazon(client)")
-if not noon_discovery < noon_gate < amazon_discovery:
+if not noon_discovery < stored_noon_recovery < noon_gate < amazon_discovery:
     raise SystemExit("Noon gate does not precede Amazon discovery")
+if "فحص نون مينيتس — استعادة من الكتالوج المحفوظ" not in scanner[stored_noon_recovery:noon_gate]:
+    raise SystemExit("stored Noon recovery label is missing before the Amazon gate")
 for text in (
     "لم يُنفذ Noon Minutes فعلياً؛ لم يبدأ Amazon Now",
     "Amazon Now blocked because Noon did not execute",
