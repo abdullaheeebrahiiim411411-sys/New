@@ -18,9 +18,9 @@ jobs:
     # The workflow intentionally has no pull_request, pull_request_target,
     # workflow_run, issue_comment, or external repository triggers.
     runs-on: ubuntu-24.04
-    # A complete scan is required to finish within one hour; retain only a
-    # small preparation/cleanup margin so a stalled run cannot block service.
-    timeout-minutes: 62
+    # ساعة واحدة هدف أداء فقط. لا نوقف Amazon عندها؛ تبقى مهلة البنية
+    # التحتية واسعة لتسمح بإكمال الكتالوج عند بطء مؤقت.
+    timeout-minutes: 180
     environment: runtime
     steps:
       - name: Load context
