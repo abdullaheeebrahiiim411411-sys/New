@@ -27,10 +27,10 @@ for text in forbidden_webhook:
     if text in webhook:
         raise SystemExit(f"obsolete parallel path remains: {text}")
 
-noon_run = scanner.index("noon_stats = await self.scan_store")
+noon_discovery = scanner.index("discovered_noon_ids = await discover_noon(client)")
 noon_gate = scanner.index("if noon_source_outage or noon_stats.discovered <= 0:")
-amazon_discovery = scanner.index("amazon_products = await self.discover_amazon")
-if not noon_run < noon_gate < amazon_discovery:
+amazon_discovery = scanner.index("discovered_amazon_ids = await discover_amazon(client)")
+if not noon_discovery < noon_gate < amazon_discovery:
     raise SystemExit("Noon gate does not precede Amazon discovery")
 for text in (
     "لم يُنفذ Noon Minutes فعلياً؛ لم يبدأ Amazon Now",
