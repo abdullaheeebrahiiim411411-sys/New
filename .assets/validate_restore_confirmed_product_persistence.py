@@ -10,20 +10,22 @@ if task_call in scanner and marker not in scanner:
     raise SystemExit("persistence task is scheduled without a definition")
 if task_call in scanner:
     start = scanner.index(marker)
-    end = scanner.index("    confirmation_tasks =", start)
+    end = scanner.index(task_call, start)
     block = scanner[start:end]
     for item in (
-        "Compatibility task for pre-existing pipeline scheduling.",
-        "return None",
+        "Persist each independently confirmed Amazon price through the sole DB writer.",
+        "item = await confirmed_products.get()",
+        "confirmed_products.task_done()",
+        "alert = write_product(conn, product, prior, started, commit=False)",
+        "stats.accepted += 1",
+        "record_failure(product.external_id, product.url, str(exc))",
     ):
         if item not in block:
-            raise SystemExit(f"missing persistence compatibility behavior: {item}")
-    if "write_product(" in block or "record_rejection(" in block:
-        raise SystemExit("compatibility task must not write concurrently")
+            raise SystemExit(f"missing confirmed-product persistence behavior: {item}")
+    if "products" in block.replace("confirmed_products", ""):
+        raise SystemExit("persistence consumer contains unexpected direct product-table operation")
 
 for item in (
-    "for product, variant in confirmed_products:",
-    "alert = write_product(conn, product, prior, started, commit=False)",
     "AMAZON_SECOND_SESSION_FAILED:",
     "AMAZON_SECOND_SESSION_MISMATCH:",
     "def write_product(",
