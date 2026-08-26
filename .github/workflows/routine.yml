@@ -2,8 +2,10 @@ name: Routine
 
 on:
   schedule:
-    # Avoid minute zero, which is commonly delayed during high Actions load.
-    - cron: "17 */3 * * *"
+    # Wake regularly away from minute zero. The database due-time and lease decide
+    # whether to start the three-hour scan, so a missed GitHub schedule event cannot
+    # skip an entire cycle or start duplicates.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
