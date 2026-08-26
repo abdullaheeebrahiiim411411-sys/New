@@ -25,23 +25,13 @@ if webhook.count(imports_old) != 1:
     raise RuntimeError("expected exactly one webhook import block")
 webhook = webhook.replace(imports_old, imports_new, 1)
 
-settings_old = '''# The direct owner-triggered worker uses the same encrypted production payload.
-# These defaults match the protected routine's active Amazon mode; deployment
-# environment values still take precedence when set explicitly.
-os.environ.setdefault("AMAZON_NOW_ENABLED", "true")
-os.environ.setdefault("AMAZON_YALLA_CATEGORY_RATE", "1.5")
-os.environ.setdefault("AMAZON_YALLA_READ_RATE", "1.5")
-os.environ.setdefault("AMAZON_YALLA_READ_TIMEOUT", "8")
-os.environ.setdefault("AMAZON_CONCURRENCY", "12")
-os.environ.setdefault("AMAZON_OTHAIM_READ_RATE", "1.6")
-os.environ.setdefault("AMAZON_OTHAIM_READ_TIMEOUT", "6")
-os.environ.setdefault("AMAZON_PRIMARY_TIMEOUT_SECONDS", "6")
-os.environ.setdefault("AMAZON_RECOVERY_TIMEOUT_SECONDS", "6")
-
-'''
-if webhook.count(settings_old) != 1:
-    raise RuntimeError("expected exactly one direct-render scanner setting block")
-webhook = webhook.replace(settings_old, "", 1)
+settings_start = webhook.find("# The direct owner-triggered worker uses the same encrypted production payload.")
+if settings_start < 0:
+    raise RuntimeError("expected direct-render scanner settings")
+settings_end = webhook.find("\n\nimport control", settings_start)
+if settings_end < 0:
+    raise RuntimeError("expected direct-render scanner setting boundary")
+webhook = webhook[:settings_start] + webhook[settings_end + 2:]
 
 runner_start = webhook.index("DIRECT_SCAN_LOCK = asyncio.Lock()")
 runner_end = webhook.index("\n\n@app.on_event(\"startup\")", runner_start)
@@ -128,3 +118,45 @@ for forbidden in (
         raise RuntimeError(f"unsafe local scan runner remains: {forbidden}")
 
 webhook_path.write_text(webhook, encoding="utf-8")
+
+scanner_path = Path(os.environ["PAYLOAD_DIR"]) / "scanner.py"
+scanner = scanner_path.read_text(encoding="utf-8")
+noon_checkpoint = '''            if scan_is_paused(conn):
+                complete_status(conn, started, StoreStats(), noon_stats, 0, 0, 0, phase="أوقف المالك الفحص بعد اكتمال نون مينيتس")
+                LOG.info("scan paused by owner after Noon Minutes phase")
+                return 0
+
+            # Amazon Now is intentionally gated: an unavailable delivery context must never become a guessed price.
+'''
+noon_gate = '''            if scan_is_paused(conn):
+                complete_status(conn, started, StoreStats(), noon_stats, 0, 0, 0, phase="أوقف المالك الفحص بعد اكتمال نون مينيتس")
+                LOG.info("scan paused by owner after Noon Minutes phase")
+                return 0
+
+            # This is a hard store-order gate for every runner, including a
+            # manually requested Routine.  Noon must have actually read at least
+            # one product before Amazon can begin; a zero discovery/read is not
+            # a valid Noon phase and must never be bypassed by Amazon.
+            if noon_source_outage or noon_stats.discovered <= 0:
+                blocked_phase = (
+                    "لم يُنفذ Noon Minutes فعلياً؛ لم يبدأ Amazon Now"
+                    if noon_source_outage else
+                    "لم تسجل Noon Minutes أي قراءة فعلية؛ لم يبدأ Amazon Now"
+                )
+                complete_status(conn, started, StoreStats(), noon_stats, 0, 0, 0, phase=blocked_phase)
+                LOG.error("Amazon Now blocked because Noon did not execute: outage=%s discovered=%d", noon_source_outage, noon_stats.discovered)
+                return 0
+
+            # Amazon Now is intentionally gated: an unavailable delivery context must never become a guessed price.
+'''
+if scanner.count(noon_checkpoint) != 1:
+    raise RuntimeError("expected exactly one Noon-to-Amazon transition checkpoint")
+scanner = scanner.replace(noon_checkpoint, noon_gate, 1)
+for required in (
+    "if noon_source_outage or noon_stats.discovered <= 0:",
+    "لم يُنفذ Noon Minutes فعلياً؛ لم يبدأ Amazon Now",
+    "Amazon Now blocked because Noon did not execute",
+):
+    if required not in scanner:
+        raise RuntimeError(f"missing Noon execution gate: {required}")
+scanner_path.write_text(scanner, encoding="utf-8")
