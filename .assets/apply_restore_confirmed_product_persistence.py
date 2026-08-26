@@ -1,3 +1,4 @@
+import ast
 import os
 from pathlib import Path
 
@@ -27,12 +28,25 @@ if task_call in source:
     has_serial_anchor = serial_anchor in source
     has_write_call = "write_product(conn, product, prior, started, commit=False)" in source
     if not has_serial_anchor or not has_write_call:
+        module = ast.parse(source)
+        target = next(
+            node for node in ast.walk(module)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "scan_amazon_official_store"
+        )
+        names = sorted({
+            node.id for node in ast.walk(target) if isinstance(node, ast.Name)
+            and ("product" in node.id or "queue" in node.id or "persist" in node.id)
+        })
+        calls = sorted({
+            node.func.id for node in ast.walk(target)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        })
         raise RuntimeError(
             "scheduled persistence shape: "
             f"serial_anchor={has_serial_anchor}; write_call={has_write_call}; "
-            f"confirmed_queue={'confirmed_queue' in source}; "
-            f"persistence_queue={'persistence_queue' in source}; "
-            f"await_task={'await persistence_task' in source}"
+            f"await_task={'await persistence_task' in source}; names={','.join(names)}; "
+            f"calls={','.join(calls)}"
         )
 
 for required in (
