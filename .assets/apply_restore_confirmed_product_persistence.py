@@ -42,11 +42,29 @@ if task_call in source:
             node.func.id for node in ast.walk(target)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         })
+        confirmed_ops = sorted({
+            node.func.attr for node in ast.walk(target)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "confirmed_products"
+        })
+        confirmed_assignment = next((
+            node.value for node in ast.walk(target)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(item, ast.Name) and item.id == "confirmed_products" for item in node.targets)
+        ), None)
+        assigned_as = type(confirmed_assignment).__name__ if confirmed_assignment else "missing"
+        if isinstance(confirmed_assignment, ast.Call):
+            assigned_as += ":" + (
+                confirmed_assignment.func.attr if isinstance(confirmed_assignment.func, ast.Attribute)
+                else confirmed_assignment.func.id if isinstance(confirmed_assignment.func, ast.Name)
+                else "other"
+            )
         raise RuntimeError(
             "scheduled persistence shape: "
             f"serial_anchor={has_serial_anchor}; write_call={has_write_call}; "
             f"await_task={'await persistence_task' in source}; names={','.join(names)}; "
-            f"calls={','.join(calls)}"
+            f"calls={','.join(calls)}; confirmed_ops={','.join(confirmed_ops)}; "
+            f"confirmed_assigned_as={assigned_as}"
         )
 
 for required in (
