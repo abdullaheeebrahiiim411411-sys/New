@@ -1,4 +1,4 @@
-name: Add due Routine wakeup backstop
+name: Discover Amazon Al Ahsa local catalog
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: add-due-routine-wakeup-backstop
+  group: discover-amazon-al-ahsa-local-catalog
   cancel-in-progress: false
 
 jobs:
@@ -25,20 +25,23 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          work="$RUNNER_TEMP/add-due-routine-wakeup-backstop"
+          work="$RUNNER_TEMP/discover-amazon-al-ahsa-local-catalog"
           mkdir -p "$work/payload"
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
           tar -xzf "$work/payload.tgz" -C "$work/payload"
           PAYLOAD_DIR="$work/payload" python .assets/apply_require_amazon_al_ahsa_location.py
           PAYLOAD_DIR="$work/payload" python .assets/apply_add_due_routine_wakeup.py
+          PAYLOAD_DIR="$work/payload" python .assets/apply_discover_amazon_al_ahsa_local_catalog.py
           python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/payload/requirements.txt"
           cp .assets/validate_require_amazon_al_ahsa_location.py "$work/"
           cp .assets/validate_add_due_routine_wakeup.py "$work/"
+          cp .assets/validate_discover_amazon_al_ahsa_local_catalog.py "$work/"
           cd "$work/payload"
           python -m py_compile webhook.py control.py scanner.py
           PAYLOAD_DIR="$work/payload" python "$work/validate_require_amazon_al_ahsa_location.py"
           PAYLOAD_DIR="$work/payload" python "$work/validate_add_due_routine_wakeup.py"
+          PAYLOAD_DIR="$work/payload" python "$work/validate_discover_amazon_al_ahsa_local_catalog.py"
           tar -czf "$work/updated.tgz" -C "$work/payload" .
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --symmetric --cipher-algo AES256 \
@@ -47,10 +50,10 @@ jobs:
           git config user.name 'runtime-publisher'
           git config user.email 'runtime-publisher@users.noreply.github.com'
           git add .assets/node.dat
-          git commit -m 'Add due Routine wakeup backstop'
+          git commit -m 'Discover Amazon Al Ahsa local catalog'
           git push
 
       - name: Cleanup
         if: always()
         shell: bash
-        run: rm -rf "$RUNNER_TEMP/add-due-routine-wakeup-backstop"
+        run: rm -rf "$RUNNER_TEMP/discover-amazon-al-ahsa-local-catalog"
