@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory() as temp:
 
     asin = "B0B94LZGBS"
     original_ensure = scanner.ensure_amazon_al_ahsa_location
-    async def blocked_location(_session, _timeout):
+    async def blocked_location(_session, _timeout, _variant):
         return False, "AL_AHSA_LABEL_MISMATCH"
     scanner.ensure_amazon_al_ahsa_location = blocked_location
     blocked_product, blocked_reason = asyncio.run(scanner.amazon_official_read(object(), asin, scanner.AsyncRateGate(1), 0, 6))

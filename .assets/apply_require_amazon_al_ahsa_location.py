@@ -20,8 +20,9 @@ AMAZON_EXPLICIT_UNAVAILABLE_MARKERS = (
 )
 
 
-def _amazon_location_headers() -> dict[str, str]:
-    headers = amazon_headers()
+def _amazon_location_headers(variant: int) -> dict[str, str]:
+    # Glow tokens are bound to the same browser fingerprint as the local-card read.
+    headers = amazon_official_headers(variant)
     headers.update({
         "Accept": "application/json, text/plain, */*",
         "X-Requested-With": "XMLHttpRequest",
@@ -30,9 +31,9 @@ def _amazon_location_headers() -> dict[str, str]:
     return headers
 
 
-def _set_amazon_al_ahsa_location(session, timeout: float) -> tuple[bool, str]:
+def _set_amazon_al_ahsa_location(session, timeout: float, variant: int) -> tuple[bool, str]:
     """Pin one Amazon session to Al Ahsa before any product read; never log tokens."""
-    headers = _amazon_location_headers()
+    headers = _amazon_location_headers(variant)
     storefront_url = f"https://www.amazon.sa/alm/storefront?almBrandId={AMAZON_BRAND_ID}"
     try:
         storefront = session.get(storefront_url, impersonate="chrome", http_version="v1", headers=headers, timeout=timeout)
@@ -106,11 +107,11 @@ def _set_amazon_al_ahsa_location(session, timeout: float) -> tuple[bool, str]:
     return True, "AL_AHSA_CONFIRMED"
 
 
-async def ensure_amazon_al_ahsa_location(session, timeout: float) -> tuple[bool, str]:
+async def ensure_amazon_al_ahsa_location(session, timeout: float, variant: int) -> tuple[bool, str]:
     key = id(session)
     if key in AMAZON_LOCATION_READY:
         return True, "AL_AHSA_CONFIRMED"
-    ok, reason = await asyncio.to_thread(_set_amazon_al_ahsa_location, session, timeout)
+    ok, reason = await asyncio.to_thread(_set_amazon_al_ahsa_location, session, timeout, variant)
     if ok:
         AMAZON_LOCATION_READY.add(key)
     return ok, reason
@@ -125,7 +126,7 @@ old_call = '''async def amazon_official_read(session, asin: str, gate: AsyncRate
 '''
 new_call = '''async def amazon_official_read(session, asin: str, gate: AsyncRateGate, variant: int, timeout: float) -> tuple[Optional[Product], str]:
     """Read one ASIN only after this session confirms Amazon Now in Al Ahsa."""
-    location_ok, location_reason = await ensure_amazon_al_ahsa_location(session, timeout)
+    location_ok, location_reason = await ensure_amazon_al_ahsa_location(session, timeout, variant)
     if not location_ok:
         return None, location_reason
     seed = AMAZON_SNAPSHOT.get(str(asin).upper())
@@ -149,7 +150,8 @@ source = source.replace(old_card, new_card, 1)
 
 for required in (
     "AL_AHSA_CHANGE_NOT_CONFIRMED", "AL_AHSA_LABEL_MISMATCH",
-    "await ensure_amazon_al_ahsa_location(session, timeout)",
+    "await ensure_amazon_al_ahsa_location(session, timeout, variant)",
+    "headers = amazon_official_headers(variant)",
     "OTHAIM_AL_AHSA_EXPLICITLY_UNAVAILABLE",
     "amazon-now-al-ahsa-local-card-live",
 ):

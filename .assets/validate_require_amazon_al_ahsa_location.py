@@ -12,14 +12,15 @@ for item in (
     '"isAddressUpdated"',
     '"isValidAddress"',
     'selected_city != AMAZON_REQUIRED_CITY',
-    'await ensure_amazon_al_ahsa_location(session, timeout)',
+    'await ensure_amazon_al_ahsa_location(session, timeout, variant)',
+    'headers = amazon_official_headers(variant)',
     'OTHAIM_AL_AHSA_EXPLICITLY_UNAVAILABLE',
     'amazon-now-al-ahsa-local-card-live',
 ):
     if item not in source:
         raise SystemExit(f"missing Al Ahsa guard: {item}")
 
-location_index = source.index('await ensure_amazon_al_ahsa_location(session, timeout)')
+location_index = source.index('await ensure_amazon_al_ahsa_location(session, timeout, variant)')
 source_dispatch = source.index('seed = AMAZON_SNAPSHOT.get(str(asin).upper())', location_index)
 if location_index > source_dispatch:
     raise SystemExit("Amazon source selection occurs before Al Ahsa confirmation")
