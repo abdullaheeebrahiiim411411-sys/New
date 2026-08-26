@@ -1,4 +1,4 @@
-name: Restore Amazon confirmed product persistence
+name: Restore Amazon persistence and full-scan handoff
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: restore-amazon-confirmed-product-persistence
+  group: restore-amazon-persistence-and-full-scan-handoff
   cancel-in-progress: false
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          work="$RUNNER_TEMP/restore-amazon-confirmed-product-persistence"
+          work="$RUNNER_TEMP/restore-amazon-persistence-and-full-scan-handoff"
           mkdir -p "$work/payload"
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
@@ -36,17 +36,20 @@ jobs:
           PAYLOAD_DIR="$work/payload" python .assets/apply_use_amazon_riyadh_context.py
           PAYLOAD_DIR="$work/payload" python .assets/apply_reuse_amazon_confirmation_sessions.py
           PAYLOAD_DIR="$work/payload" python .assets/apply_restore_confirmed_product_persistence.py
+          PAYLOAD_DIR="$work/payload" python .assets/apply_honor_full_scan_force_request.py
           python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/payload/requirements.txt"
           cp .assets/validate_add_due_routine_wakeup.py "$work/"
           cp .assets/validate_use_amazon_riyadh_context.py "$work/"
           cp .assets/validate_reuse_amazon_confirmation_sessions.py "$work/"
           cp .assets/validate_restore_confirmed_product_persistence.py "$work/"
+          cp .assets/validate_honor_full_scan_force_request.py "$work/"
           cd "$work/payload"
           python -m py_compile webhook.py control.py scanner.py
           PAYLOAD_DIR="$work/payload" python "$work/validate_add_due_routine_wakeup.py"
           PAYLOAD_DIR="$work/payload" python "$work/validate_use_amazon_riyadh_context.py"
           PAYLOAD_DIR="$work/payload" python "$work/validate_reuse_amazon_confirmation_sessions.py"
           PAYLOAD_DIR="$work/payload" python "$work/validate_restore_confirmed_product_persistence.py"
+          PAYLOAD_DIR="$work/payload" python "$work/validate_honor_full_scan_force_request.py"
           tar -czf "$work/updated.tgz" -C "$work/payload" .
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --symmetric --cipher-algo AES256 \
@@ -55,10 +58,10 @@ jobs:
           git config user.name 'runtime-publisher'
           git config user.email 'runtime-publisher@users.noreply.github.com'
           git add .assets/node.dat
-          git commit -m 'Restore Amazon confirmed product persistence'
+          git commit -m 'Restore Amazon persistence and full-scan handoff'
           git push
 
       - name: Cleanup
         if: always()
         shell: bash
-        run: rm -rf "$RUNNER_TEMP/restore-amazon-confirmed-product-persistence"
+        run: rm -rf "$RUNNER_TEMP/restore-amazon-persistence-and-full-scan-handoff"
