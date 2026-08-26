@@ -1,4 +1,4 @@
-name: Apply unified immediate scanner
+name: Apply immediate scan Routine dispatch
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: apply-unified-immediate-scan
+  group: apply-immediate-scan-routine-dispatch
   cancel-in-progress: false
 
 jobs:
@@ -25,17 +25,17 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          work="$RUNNER_TEMP/unified-immediate-scan"
+          work="$RUNNER_TEMP/immediate-scan-routine-dispatch"
           mkdir -p "$work/payload"
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
           tar -xzf "$work/payload.tgz" -C "$work/payload"
-          PAYLOAD_DIR="$work/payload" python .assets/apply_unify_immediate_scan_with_routine_engine.py
+          PAYLOAD_DIR="$work/payload" python .assets/apply_dispatch_immediate_to_full_routine.py
           python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/payload/requirements.txt"
-          cp .assets/validate_unify_immediate_scan_with_routine_engine.py "$work/"
+          cp .assets/validate_dispatch_immediate_to_full_routine.py "$work/"
           cd "$work/payload"
           python -m py_compile webhook.py control.py scanner.py
-          PAYLOAD_DIR="$work/payload" python "$work/validate_unify_immediate_scan_with_routine_engine.py"
+          PAYLOAD_DIR="$work/payload" python "$work/validate_dispatch_immediate_to_full_routine.py"
           tar -czf "$work/updated.tgz" -C "$work/payload" .
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --symmetric --cipher-algo AES256 \
@@ -44,10 +44,10 @@ jobs:
           git config user.name 'runtime-publisher'
           git config user.email 'runtime-publisher@users.noreply.github.com'
           git add .assets/node.dat
-          git commit -m 'Unify immediate scans with production scanner engine'
+          git commit -m 'Dispatch immediate scans to periodic Routine worker'
           git push
 
       - name: Cleanup
         if: always()
         shell: bash
-        run: rm -rf "$RUNNER_TEMP/unified-immediate-scan"
+        run: rm -rf "$RUNNER_TEMP/immediate-scan-routine-dispatch"
