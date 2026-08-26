@@ -7,7 +7,11 @@ scanner_path = payload / "scanner.py"
 webhook = webhook_path.read_text(encoding="utf-8")
 scanner = scanner_path.read_text(encoding="utf-8")
 
-imports_old = '''import asyncio
+# The first deployment changes the retired GitHub-dispatch path into the unified
+# scanner path. Subsequent deployments keep that same path and only evolve the
+# scanner; this makes the publisher safe to run against either live revision.
+if "ROUTINE_DISPATCH_LOCK = asyncio.Lock()" in webhook:
+    imports_old = '''import asyncio
 import hmac
 import logging
 import os
@@ -16,7 +20,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 '''
-imports_new = '''import asyncio
+    imports_new = '''import asyncio
 import hmac
 import logging
 import os
@@ -24,13 +28,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 '''
-if webhook.count(imports_old) != 1:
-    raise RuntimeError("expected exactly one dispatch import block")
-webhook = webhook.replace(imports_old, imports_new, 1)
+    if webhook.count(imports_old) != 1:
+        raise RuntimeError("expected exactly one dispatch import block")
+    webhook = webhook.replace(imports_old, imports_new, 1)
 
-runner_start = webhook.index("ROUTINE_DISPATCH_LOCK = asyncio.Lock()")
-runner_end = webhook.index("\n\n@app.on_event(\"startup\")", runner_start)
-runner_new = '''IMMEDIATE_SCAN_LOCK = asyncio.Lock()
+    runner_start = webhook.index("ROUTINE_DISPATCH_LOCK = asyncio.Lock()")
+    runner_end = webhook.index("\n\n@app.on_event(\"startup\")", runner_start)
+    runner_new = '''IMMEDIATE_SCAN_LOCK = asyncio.Lock()
 
 
 async def run_requested_scan() -> None:
@@ -51,22 +55,24 @@ async def run_requested_scan() -> None:
         except Exception as exc:
             LOG.exception("immediate unified scan worker failure: %s", type(exc).__name__)
 '''
-webhook = webhook[:runner_start] + runner_new + webhook[runner_end:]
+    webhook = webhook[:runner_start] + runner_new + webhook[runner_end:]
 
-trigger_old = '''            # Always run the same full Routine worker used by the schedule.  It
+    trigger_old = '''            # Always run the same full Routine worker used by the schedule.  It
             # carries the verified Noon context and preserves Noon-first order.
             asyncio.create_task(dispatch_requested_scan())
             LOG.info("manual scan request dispatched to the protected Routine worker")
 '''
-trigger_new = '''            # Start the same scanner engine used by the periodic worker.  Its
+    trigger_new = '''            # Start the same scanner engine used by the periodic worker.  Its
             # lease prevents duplicates and its internal Noon gate prevents any
             # Amazon phase before Noon has executed actual product reads.
             asyncio.create_task(run_requested_scan())
             LOG.info("manual scan request started through the unified scanner engine")
 '''
-if webhook.count(trigger_old) != 1:
-    raise RuntimeError("expected exactly one routine-dispatch trigger")
-webhook = webhook.replace(trigger_old, trigger_new, 1)
+    if webhook.count(trigger_old) != 1:
+        raise RuntimeError("expected exactly one routine-dispatch trigger")
+    webhook = webhook.replace(trigger_old, trigger_new, 1)
+elif "IMMEDIATE_SCAN_LOCK = asyncio.Lock()" not in webhook:
+    raise RuntimeError("neither known immediate-scan path was found")
 
 for forbidden in (
     "GITHUB_ROUTINE_DISPATCH_TOKEN",
@@ -86,7 +92,9 @@ for required in (
 ):
     if required not in webhook:
         raise RuntimeError(f"missing unified immediate scan behavior: {required}")
-noon_outage_old = '''            if noon_source_outage:
+
+if "executing stored exact scope=%d before Amazon" not in scanner:
+    noon_outage_old = '''            if noon_source_outage:
                 noon_stats, noon_alerts = StoreStats(), []
                 publish_scan_progress(
                     conn, "NOON_MINUTES", noon_stats,
@@ -98,12 +106,12 @@ noon_outage_old = '''            if noon_source_outage:
                 )
             else:
 '''
-noon_outage_new = '''            if noon_source_outage:
+    noon_outage_new = '''            if noon_source_outage:
                 # The stored Noon catalog is an exact Minutes product scope built
-                # by earlier live discoveries.  When only catalog discovery is
+                # by earlier live discoveries. When only catalog discovery is
                 # temporarily unavailable, still execute real product reads from
-                # that scope before Amazon; zero discovery must not become a
-                # shortcut around the required Noon phase.
+                # that scope before Amazon; zero discovery is never a shortcut
+                # around the mandatory Noon phase.
                 noon_ids = select_rotating_batch("noon_minutes", known_noon_ids)
                 if noon_ids:
                     noon_known = load_known(conn, "NOON_MINUTES")
@@ -129,9 +137,9 @@ noon_outage_new = '''            if noon_source_outage:
                     LOG.error("noon source outage with no stored IDs; Amazon remains blocked")
             else:
 '''
-if scanner.count(noon_outage_old) != 1:
-    raise RuntimeError("expected exactly one Noon outage branch")
-scanner = scanner.replace(noon_outage_old, noon_outage_new, 1)
+    if scanner.count(noon_outage_old) != 1:
+        raise RuntimeError("expected exactly one Noon outage branch")
+    scanner = scanner.replace(noon_outage_old, noon_outage_new, 1)
 
 for required in (
     "executing stored exact scope=%d before Amazon",
@@ -141,6 +149,7 @@ for required in (
     "Amazon Now blocked because Noon did not execute",
 ):
     if required not in scanner:
-        raise RuntimeError(f"missing mandatory Noon gate: {required}")
+        raise RuntimeError(f"missing mandatory Noon behavior: {required}")
 
 webhook_path.write_text(webhook, encoding="utf-8")
+scanner_path.write_text(scanner, encoding="utf-8")
