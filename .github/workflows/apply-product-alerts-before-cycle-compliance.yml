@@ -1,0 +1,53 @@
+name: Apply product alerts before cycle compliance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-product-alerts-before-cycle-compliance
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: runtime
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Patch, validate, and publish encrypted runtime
+        shell: bash
+        env:
+          ARCHIVE_KEY: ${{ secrets.ARCHIVE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          work="$RUNNER_TEMP/product-alerts-before-cycle-compliance"
+          mkdir -p "$work/payload"
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
+          tar -xzf "$work/payload.tgz" -C "$work/payload"
+          PAYLOAD_DIR="$work/payload" python .assets/apply_product_alerts_before_cycle_compliance.py
+          python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/payload/requirements.txt"
+          cp .assets/validate_product_alerts_before_cycle_compliance.py "$work/"
+          cd "$work/payload"
+          python -m py_compile scanner.py
+          PAYLOAD_DIR="$work/payload" python "$work/validate_product_alerts_before_cycle_compliance.py"
+          tar -czf "$work/updated.tgz" -C "$work/payload" .
+          printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            --output "$GITHUB_WORKSPACE/.assets/node.dat" "$work/updated.tgz"
+          cd "$GITHUB_WORKSPACE"
+          git config user.name 'runtime-publisher'
+          git config user.email 'runtime-publisher@users.noreply.github.com'
+          git add .assets/node.dat
+          git commit -m 'Deliver confirmed product alerts before cycle compliance'
+          git push
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/product-alerts-before-cycle-compliance"
