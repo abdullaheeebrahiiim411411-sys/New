@@ -1,4 +1,4 @@
-name: Discover Amazon Al Ahsa local catalog
+name: Use Amazon Riyadh verified context
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: discover-amazon-al-ahsa-local-catalog
+  group: use-amazon-riyadh-verified-context
   cancel-in-progress: false
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          work="$RUNNER_TEMP/discover-amazon-al-ahsa-local-catalog"
+          work="$RUNNER_TEMP/use-amazon-riyadh-verified-context"
           mkdir -p "$work/payload"
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --decrypt --output "$work/payload.tgz" .assets/node.dat
@@ -33,15 +33,14 @@ jobs:
           PAYLOAD_DIR="$work/payload" python .assets/apply_require_amazon_al_ahsa_location.py
           PAYLOAD_DIR="$work/payload" python .assets/apply_add_due_routine_wakeup.py
           PAYLOAD_DIR="$work/payload" python .assets/apply_discover_amazon_al_ahsa_local_catalog.py
+          PAYLOAD_DIR="$work/payload" python .assets/apply_use_amazon_riyadh_context.py
           python -m pip install --disable-pip-version-check --no-cache-dir -r "$work/payload/requirements.txt"
-          cp .assets/validate_require_amazon_al_ahsa_location.py "$work/"
           cp .assets/validate_add_due_routine_wakeup.py "$work/"
-          cp .assets/validate_discover_amazon_al_ahsa_local_catalog.py "$work/"
+          cp .assets/validate_use_amazon_riyadh_context.py "$work/"
           cd "$work/payload"
           python -m py_compile webhook.py control.py scanner.py
-          PAYLOAD_DIR="$work/payload" python "$work/validate_require_amazon_al_ahsa_location.py"
           PAYLOAD_DIR="$work/payload" python "$work/validate_add_due_routine_wakeup.py"
-          PAYLOAD_DIR="$work/payload" python "$work/validate_discover_amazon_al_ahsa_local_catalog.py"
+          PAYLOAD_DIR="$work/payload" python "$work/validate_use_amazon_riyadh_context.py"
           tar -czf "$work/updated.tgz" -C "$work/payload" .
           printf '%s' "$ARCHIVE_KEY" | gpg --quiet --batch --yes --pinentry-mode loopback \
             --passphrase-fd 0 --symmetric --cipher-algo AES256 \
@@ -50,10 +49,10 @@ jobs:
           git config user.name 'runtime-publisher'
           git config user.email 'runtime-publisher@users.noreply.github.com'
           git add .assets/node.dat
-          git commit -m 'Discover Amazon Al Ahsa local catalog'
+          git commit -m 'Use Amazon Riyadh verified context'
           git push
 
       - name: Cleanup
         if: always()
         shell: bash
-        run: rm -rf "$RUNNER_TEMP/discover-amazon-al-ahsa-local-catalog"
+        run: rm -rf "$RUNNER_TEMP/use-amazon-riyadh-verified-context"
