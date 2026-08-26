@@ -41,6 +41,41 @@ def main() -> None:
                 (started,),
             )
             reasons = [{"reason": reason, "count": count} for reason, count in cur.fetchall()]
+            cur.execute(
+                """
+                select count(*),
+                       count(*) filter (where price_status = 'AVAILABLE' and current_price > 0),
+                       count(*) filter (where price_count >= 3 and avg_price > 0),
+                       coalesce(sum(price_count), 0),
+                       min(nullif(price_count, 0)), max(price_count), max(last_seen)
+                from products
+                where store = 'AMAZON_NOW'
+                """
+            )
+            total, available, comparable, total_reads, min_reads, max_reads, latest_seen = cur.fetchone()
+            cur.execute(
+                """
+                select count(*), max(observed_at), count(distinct product_id)
+                from product_price_changes
+                where store = 'AMAZON_NOW'
+                """
+            )
+            changes_total, changes_latest, changes_products = cur.fetchone()
+            cur.execute(
+                """
+                select scan_time, amazon_now_scan, amazon_now_accepted, amazon_now_rejected
+                from scan_history
+                order by scan_time desc
+                limit 5
+                """
+            )
+            history = [
+                {
+                    "scan_time_utc": row[0].isoformat() if row[0] else None,
+                    "scanned": row[1], "accepted": row[2], "rejected": row[3],
+                }
+                for row in cur.fetchall()
+            ]
         result = {
             "observed_at_utc": datetime.now(timezone.utc).isoformat(),
             "read_only": True,
@@ -51,6 +86,19 @@ def main() -> None:
             "amazon": {"scanned": a_scan, "accepted": a_ok, "rejected": a_rej},
             "noon": {"scanned": n_scan, "accepted": n_ok, "rejected": n_rej},
             "amazon_reasons": reasons,
+            "amazon_history": {
+                "products_total": total,
+                "available_current": available,
+                "comparison_eligible": comparable,
+                "sum_price_count": int(total_reads or 0),
+                "min_nonzero_price_count": int(min_reads or 0),
+                "max_price_count": int(max_reads or 0),
+                "latest_seen_utc": latest_seen.isoformat() if latest_seen else None,
+                "price_changes_total": changes_total,
+                "price_changes_latest_utc": changes_latest.isoformat() if changes_latest else None,
+                "price_changes_distinct_products": changes_products,
+                "recent_cycles": history,
+            },
         }
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     finally:
