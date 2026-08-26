@@ -8,7 +8,8 @@ expected_owner = os.environ.get("EXPECTED_OWNER", "").strip()
 if not expected_owner:
     raise SystemExit("missing expected scan owner")
 
-conn = psycopg2.connect(os.environ["DATABASE_URL"])
+conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=20, sslmode="require")
+conn.set_session(readonly=False, autocommit=False)
 try:
     with conn:
         with conn.cursor() as cur:

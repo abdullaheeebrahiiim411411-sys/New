@@ -6,6 +6,7 @@ workflow = (root / ".github" / "workflows" / "recover-cancelled-scan-lease.yml")
 
 for item in (
     "missing expected scan owner",
+    "conn.set_session(readonly=False, autocommit=False)",
     "where lease_key='scheduled_scan'",
     "for update",
     "str(lease[0] or \"\") != expected_owner",
