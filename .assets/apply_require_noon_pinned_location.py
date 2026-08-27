@@ -32,6 +32,7 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
     hint = NOON_LOCATION_UI_HINT.casefold()
     pinned = await page.evaluate(
         """hint => [...document.querySelectorAll('button')].some(button => {
+            if (!button.getClientRects().length) return false;
             const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
             return text.length >= 18 && text.toLocaleLowerCase().includes(hint);
         })""",
@@ -44,7 +45,8 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
         """hint => {
             const buttons = [...document.querySelectorAll('button')];
             const city = buttons.find(button => {
-                const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
+                if (!button.getClientRects().length) return false;
+            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
                 return text.length > 0 && text.length < 18 && text.toLocaleLowerCase().includes(hint);
             });
             if (!city) return false;
@@ -62,7 +64,8 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
         await confirm.click(timeout=NOON_BROWSER_TIMEOUT_MS)
         await page.wait_for_function(
             """hint => [...document.querySelectorAll('button')].some(button => {
-                const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
+                if (!button.getClientRects().length) return false;
+            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
                 return text.length >= 18 && text.toLocaleLowerCase().includes(hint);
             })""",
             arg=hint,
@@ -73,6 +76,7 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
 
     pinned = await page.evaluate(
         """hint => [...document.querySelectorAll('button')].some(button => {
+            if (!button.getClientRects().length) return false;
             const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
             return text.length >= 18 && text.toLocaleLowerCase().includes(hint);
         })""",
@@ -87,6 +91,17 @@ if "async def ensure_noon_pinned_location(page)" not in source:
     if helper_marker not in source:
         raise RuntimeError("Noon transport anchor missing")
     source = source.replace(helper_marker, helper + helper_marker, 1)
+
+# Normalize the visible-element safeguard when upgrading the prior published
+# version, whose first matching city button could be an invisible drawer entry.
+helper_start = source.index("async def ensure_noon_pinned_location(page)")
+helper_end = source.index(helper_marker, helper_start)
+helper_source = source[helper_start:helper_end]
+visibility_needle = "const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();"
+visibility_replacement = "if (!button.getClientRects().length) return false;\\n            " + visibility_needle
+if "button.getClientRects().length" not in helper_source:
+    helper_source = helper_source.replace(visibility_needle, visibility_replacement)
+    source = source[:helper_start] + helper_source + source[helper_end:]
 
 old_context = '''            context = await browser.new_context(locale="ar-SA", user_agent=noon_headers()["User-Agent"])
             location_cookies = noon_browser_cookies()
