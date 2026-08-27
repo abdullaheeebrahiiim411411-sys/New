@@ -6,116 +6,77 @@ path = payload / "scanner.py"
 source = path.read_text(encoding="utf-8")
 
 constant_anchor = 'NOON_BROWSER_CATALOG = os.getenv("NOON_BROWSER_CATALOG", "1").strip().lower() not in {"0", "false", "no"}\n'
-required_constants = '''NOON_PINNED_LOCATION_REQUIRED = os.getenv("NOON_PINNED_LOCATION_REQUIRED", "true").strip().lower() in {"1", "true", "yes", "on"}
+pinned_location_constant = '''NOON_PINNED_LOCATION_REQUIRED = os.getenv("NOON_PINNED_LOCATION_REQUIRED", "true").strip().lower() in {"1", "true", "yes", "on"}
+'''
+public_location_constants = '''NOON_PUBLIC_LOCATION_QUERY = os.getenv("NOON_PUBLIC_LOCATION_QUERY", "عين نجم المبرز").strip()
+NOON_PUBLIC_LOCATION_OPTION = os.getenv("NOON_PUBLIC_LOCATION_OPTION", "عين نجم").strip()
 '''
 if "NOON_PINNED_LOCATION_REQUIRED =" not in source:
     if constant_anchor not in source:
         raise RuntimeError("Noon browser-context configuration anchor missing")
-    source = source.replace(constant_anchor, constant_anchor + required_constants, 1)
+    source = source.replace(constant_anchor, constant_anchor + pinned_location_constant, 1)
+if "NOON_PUBLIC_LOCATION_QUERY =" not in source:
+    if constant_anchor not in source:
+        raise RuntimeError("Noon public-location configuration anchor missing")
+    source = source.replace(constant_anchor, constant_anchor + public_location_constants, 1)
 
 helper_marker = "@asynccontextmanager\nasync def noon_catalog_transport(client: AsyncSession):\n"
 helper = '''async def ensure_noon_pinned_location(page) -> None:
-    """Set and verify a serviceable Noon delivery location for this browser context.
+    """Choose and confirm the public bot location through Noon’s own map UI.
 
-    The public storefront's API first resolves a point to a serviceable location,
-    then attaches that location to the anonymous browser session.  This is the
-    same order used by Noon’s map UI, but avoids treating a city-only default
-    page as a confirmed price context.  No address text, key, cookie, or account
-    data is logged or persisted by the scanner.
+    A fresh anonymous context searches for the public reference point, selects
+    Noon’s matching map option, then clicks the map confirmation control. This
+    is stricter than calling the location API directly: no account, user cookie,
+    user address, or storage state is read, supplied, or persisted.
     """
     if not NOON_PINNED_LOCATION_REQUIRED:
         return
-
-    # Browser forbids a few transport-controlled headers; retain the public
-    # Minutes delivery-context headers that the existing scanner already uses.
-    location_headers = {
-        key: value
-        for key, value in noon_headers().items()
-        if key.casefold() not in {"user-agent", "cookie", "accept"}
-    }
-    request = {
-        "lat": NOON_LOCATION_LAT,
-        "lng": NOON_LOCATION_LON,
-        "headers": location_headers,
-    }
     try:
-        outcome = await page.evaluate(
-            """async ({lat, lng, headers}) => {
-                const post = async (path, body) => fetch(path, {
-                    method: 'POST', credentials: 'include',
-                    headers: {'content-type': 'application/json', ...headers},
-                    body: JSON.stringify(body),
-                });
-                const serviceResponse = await post(
-                    '/_svc/mp-identity-api/serviceable-geo-info/by-location',
-                    {location: {lat, lng}},
-                );
-                let serviceBody = {};
-                try { serviceBody = await serviceResponse.json(); } catch (_) {}
-                const service = serviceBody.data || serviceBody;
-                const location = service && service.location;
-                const area = service
-                    ? [service.placeName, service.area].filter(Boolean).join(' - ')
-                    : '';
-                const cityId = service && service.cityId;
-                if (!serviceResponse.ok || !service || !service.isServiceable || !location || !cityId) {
-                    return {
-                        serviceable: false,
-                        hasLocation: Boolean(location),
-                        hasCity: Boolean(cityId),
-                        locationSet: false,
-                    };
-                }
-                const setResponse = await post(
-                    '/_svc/mp-identity-api/address/set-location',
-                    {location, area, cityId},
-                );
-                let setBody = {};
-                try { setBody = await setResponse.json(); } catch (_) {}
-                let sessionPinVerified = false;
-                for (let attempt = 0; attempt < 8 && !sessionPinVerified; attempt += 1) {
-                    let whoamiBody = {};
-                    let whoamiOk = false;
-                    try {
-                        const whoamiResponse = await fetch('/_vs/st/st-whoami-api-web/whoami', {
-                            credentials: 'include', headers: {'x-platform': 'web', 'cache-control': 'no-cache'},
-                        });
-                        whoamiOk = whoamiResponse.ok;
-                        whoamiBody = await whoamiResponse.json();
-                    } catch (_) {}
-                    const experience = Array.isArray(whoamiBody.experiences)
-                        ? whoamiBody.experiences.find(item => item && item.key === 'nooninstant')
+        consent = page.get_by_role("button", name=re.compile(r"^قبول$|^Accept$", re.I))
+        if await consent.count():
+            await consent.first.click(timeout=5000)
+            await asyncio.sleep(0.5)
+        location_trigger = page.locator("button:visible, [role='button']:visible").filter(
+            has_text=re.compile(r"الرياض|Riyadh|المبرز|Al[- ]Mubarraz", re.I)
+        ).first
+        await location_trigger.click(timeout=10000)
+        await asyncio.sleep(2)
+        await page.locator("input:visible").last.fill(NOON_PUBLIC_LOCATION_QUERY, timeout=5000)
+        await asyncio.sleep(5)
+        public_option = page.get_by_text(NOON_PUBLIC_LOCATION_OPTION, exact=True).last
+        if await public_option.count() == 0:
+            raise ScanFailure("NOON_PUBLIC_LOCATION_OPTION_UNAVAILABLE")
+        await public_option.click(timeout=10000)
+        await asyncio.sleep(12)
+        confirmation = page.get_by_role("button", name=re.compile(r"تأكيد الموقع|Confirm location", re.I)).first
+        if await confirmation.count() == 0:
+            raise ScanFailure("NOON_PINNED_LOCATION_CONFIRMATION_FAILED")
+        await confirmation.click(timeout=10000)
+        await asyncio.sleep(10)
+    except ScanFailure:
+        raise
+    except Exception as exc:
+        raise ScanFailure("NOON_PUBLIC_LOCATION_UI_UNAVAILABLE") from exc
+
+    try:
+        session_pin_verified = await page.evaluate(
+            """async () => {
+                try {
+                    const response = await fetch('/_vs/st/st-whoami-api-web/whoami', {
+                        credentials: 'include', headers: {'x-platform': 'web', 'cache-control': 'no-cache'},
+                    });
+                    const body = await response.json();
+                    const experience = Array.isArray(body.experiences)
+                        ? body.experiences.find(item => item && item.key === 'nooninstant')
                         : null;
                     const pin = experience && experience.selectedPin;
-                    // Noon may map a requested serviceable point to the center
-                    // of a delivery zone. Confirm only that the anonymous session
-                    // contains a valid Noon-selected pin; never inspect or log it.
-                    sessionPinVerified = Boolean(
-                        whoamiOk && pin && Number.isFinite(Number(pin.lat))
-                        && Number.isFinite(Number(pin.lng))
-                    );
-                    if (!sessionPinVerified && attempt < 7) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    }
-                }
-                return {
-                    serviceable: true,
-                    hasLocation: true,
-                    hasCity: true,
-                    locationSet: Boolean(setResponse.ok && setBody && setBody.success),
-                    sessionPinVerified,
-                };
-            }""",
-            request,
+                    return Boolean(response.ok && pin && Number.isFinite(Number(pin.lat)) && Number.isFinite(Number(pin.lng)));
+                } catch (_) { return false; }
+            }"""
         )
     except Exception as exc:
-        raise ScanFailure("NOON_PINNED_LOCATION_SERVICEABILITY_FAILED") from exc
-
-    if not isinstance(outcome, dict) or not outcome.get("serviceable"):
-        raise ScanFailure("NOON_PINNED_LOCATION_NOT_SERVICEABLE")
-    if not outcome.get("hasLocation") or not outcome.get("hasCity") or not outcome.get("locationSet"):
-        raise ScanFailure("NOON_PINNED_LOCATION_CONFIRMATION_FAILED")
-    if not outcome.get("sessionPinVerified"):
+        raise ScanFailure("NOON_PINNED_LOCATION_SESSION_UNVERIFIED") from exc
+    if not session_pin_verified:
         raise ScanFailure("NOON_PINNED_LOCATION_SESSION_UNVERIFIED")
 
 
@@ -211,12 +172,12 @@ old_catalog_get = '''                if status == 200:
 '''
 new_catalog_get = '''                if status == 200:
                     products, pages = noon_products_from_catalog(page)
-                    # Only catalog responses captured from the freshly pinned
-                    # public browser session are eligible for a price write.
+                    # Prices are eligible only after Noon’s own public-map search
+                    # selected and confirmed the configured public reference pin.
                     products = {
                         product_id: Product(
                             product.store, product.url, product.external_id, product.name,
-                            product.price, "noon-catalog-pinned-session",
+                            product.price, "noon-catalog-public-pin-ui",
                         )
                         for product_id, product in products.items()
                     }
@@ -224,8 +185,18 @@ new_catalog_get = '''                if status == 200:
 '''
 if old_catalog_get in source:
     source = source.replace(old_catalog_get, new_catalog_get, 1)
-elif '"noon-catalog-pinned-session"' not in source:
-    raise RuntimeError("Noon pinned catalog admission boundary missing")
+elif '"noon-catalog-pinned-session"' in source:
+    source = source.replace('"noon-catalog-pinned-session"', '"noon-catalog-public-pin-ui"', 1)
+elif '"noon-catalog-public-pin-ui"' not in source:
+    raise RuntimeError("Noon public-map catalog admission boundary missing")
+
+# The public-map search selects Noon’s own location result.  Do not seed this
+# anonymous browser context with latitude/longitude values from configuration.
+source = source.replace(
+    '                geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON},\n'
+    '                permissions=["geolocation"],\n',
+    '',
+)
 
 old_exception = '''        except Exception as exc:
             LOG.warning("noon browser transport unavailable: %s; using direct public fallback", type(exc).__name__)
@@ -256,10 +227,9 @@ fallback_guard_anchor = '''    cached = NOON_SNAPSHOT.get(product_id)
 '''
 fallback_guard_replacement = '''    cached = NOON_SNAPSHOT.get(product_id)
     if cached:
-        # A selected pin and dynamic catalog headers alone did not prove the
-        # displayed product price.  Do not write or alert from this source
-        # until a SKU-bound independent verification path exists.
-        if NOON_PINNED_LOCATION_REQUIRED:
+        # A price is admissible only if it came from Noon’s public-map selection
+        # and confirmation flow for the bot’s configured public reference point.
+        if NOON_PINNED_LOCATION_REQUIRED and cached.debug != "noon-catalog-public-pin-ui":
             raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")
         return cached
 
@@ -279,14 +249,19 @@ legacy_fallback_guard = '''    # A raw product-page response can silently expose
     if NOON_PINNED_LOCATION_REQUIRED:
         raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")
 '''
-catalog_context_guard = '''        if NOON_PINNED_LOCATION_REQUIRED:
+legacy_catalog_context_guard = '''        if NOON_PINNED_LOCATION_REQUIRED:
+            raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")
+'''
+verified_catalog_context_guard = '''        if NOON_PINNED_LOCATION_REQUIRED and cached.debug != "noon-catalog-public-pin-ui":
             raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")
 '''
 cached_return = '''    cached = NOON_SNAPSHOT.get(product_id)
     if cached:
         return cached
 '''
-if "NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED" not in source:
+if legacy_catalog_context_guard in source:
+    source = source.replace(legacy_catalog_context_guard, verified_catalog_context_guard, 1)
+elif verified_catalog_context_guard not in source:
     if cached_return in source:
         source = source.replace(
             cached_return,
@@ -354,22 +329,24 @@ elif "NOON_PINNED_LOCATION_BROWSER_REQUIRED" not in source:
 for required in (
     "NOON_PINNED_LOCATION_REQUIRED =",
     "async def ensure_noon_pinned_location(page)",
-    "serviceable-geo-info/by-location",
-    "address/set-location",
-    "NOON_PINNED_LOCATION_NOT_SERVICEABLE",
-            "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
+            "NOON_PUBLIC_LOCATION_QUERY =",
+        "NOON_PUBLIC_LOCATION_OPTION =",
+        "NOON_PUBLIC_LOCATION_OPTION_UNAVAILABLE",
+        "NOON_PUBLIC_LOCATION_UI_UNAVAILABLE",
+        "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
         "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
-        "sessionPinVerified",
-        "valid Noon-selected pin",
-        "attempt < 8",
+        "تأكيد الموقع",
+        "st-whoami-api-web/whoami",
+
         "catalog_request_headers",
         "capture_catalog_request",
         "NOON_PINNED_CATALOG_CONTEXT_UNAVAILABLE",
         "NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED",
         "st-whoami-api-web/whoami",
 
-    'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',
-    'permissions=["geolocation"]',
+    "NOON_PUBLIC_LOCATION_QUERY",
+    "NOON_PUBLIC_LOCATION_OPTION",
+    "noon-catalog-public-pin-ui",
     "await ensure_noon_pinned_location(page)",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
             "NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED",

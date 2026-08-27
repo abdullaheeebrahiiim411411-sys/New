@@ -6,20 +6,14 @@ scanner = (Path(os.environ["PAYLOAD_DIR"]) / "scanner.py").read_text(encoding="u
 for required in (
     "NOON_PINNED_LOCATION_REQUIRED =",
     "async def ensure_noon_pinned_location(page)",
-    "serviceable-geo-info/by-location",
-    "address/set-location",
-    "serviceResponse.ok",
-    "service.isServiceable",
-    "setResponse.ok",
-    "setBody.success",
-    "NOON_PINNED_LOCATION_SERVICEABILITY_FAILED",
-    "NOON_PINNED_LOCATION_NOT_SERVICEABLE",
+    "NOON_PUBLIC_LOCATION_QUERY =",
+    "NOON_PUBLIC_LOCATION_OPTION =",
+    "NOON_PUBLIC_LOCATION_OPTION_UNAVAILABLE",
+    "NOON_PUBLIC_LOCATION_UI_UNAVAILABLE",
     "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
     "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
+    "تأكيد الموقع",
     "st-whoami-api-web/whoami",
-    "sessionPinVerified",
-    "valid Noon-selected pin",
-    "attempt < 8",
     "catalog_request_headers",
     "capture_catalog_request",
     "NOON_PINNED_CATALOG_CONTEXT_UNAVAILABLE",
@@ -27,9 +21,7 @@ for required in (
     "required_catalog_headers",
     "x-nooninstant-zonecode",
     "x-services-zonecode",
-    "noon-catalog-pinned-session",
-    'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',
-    'permissions=["geolocation"]',
+    "noon-catalog-public-pin-ui",
     "await ensure_noon_pinned_location(page)",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
     "NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED",
@@ -45,10 +37,14 @@ transport_end = scanner.index("async def discover_noon", transport_start)
 pin_helper = scanner[helper_start:transport_start]
 transport = scanner[transport_start:transport_end]
 
-if pin_helper.index("serviceable-geo-info/by-location") > pin_helper.index("address/set-location"):
-    raise SystemExit("Noon serviceability must precede set-location")
-if pin_helper.index("address/set-location") > pin_helper.index("st-whoami-api-web/whoami"):
-    raise SystemExit("Noon session must be verified after set-location")
+if pin_helper.index("NOON_PUBLIC_LOCATION_QUERY") > pin_helper.index("NOON_PUBLIC_LOCATION_OPTION"):
+    raise SystemExit("Noon public map query must precede selection")
+if pin_helper.index("NOON_PUBLIC_LOCATION_OPTION") > pin_helper.index("تأكيد الموقع"):
+    raise SystemExit("Noon public map option must precede confirmation")
+if pin_helper.index("تأكيد الموقع") > pin_helper.index("st-whoami-api-web/whoami"):
+    raise SystemExit("Noon session must be verified after public map confirmation")
+if "geolocation={" in pin_helper or "NOON_LOCATION_LAT" in pin_helper or "NOON_LOCATION_LON" in pin_helper:
+    raise SystemExit("Noon public-map helper must not use configured coordinates")
 if "return Product(" in pin_helper or "write_product(" in pin_helper:
     raise SystemExit("location helper must not accept or write prices")
 if transport.index("await ensure_noon_pinned_location(page)") > transport.index("async def browser_fetch"):
@@ -80,7 +76,7 @@ if product_fetch.index(guard) > product_fetch.index("extract_noon_target_page_fi
 legacy_guard = 'if NOON_PINNED_LOCATION_REQUIRED:\n        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")'
 if legacy_guard not in product_fetch:
     raise SystemExit("Noon product page must remain rejected until its price context is independently verified")
-catalog_guard = 'if NOON_PINNED_LOCATION_REQUIRED:\n            raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")'
+catalog_guard = 'if NOON_PINNED_LOCATION_REQUIRED and cached.debug != "noon-catalog-public-pin-ui":\n            raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")'
 if catalog_guard not in product_fetch:
     raise SystemExit("Noon catalog prices must remain rejected until their context is independently verified")
 if product_fetch.index(legacy_guard) > product_fetch.index("for attempt in range(NOON_PAGE_FALLBACK_ATTEMPTS):"):
@@ -97,8 +93,8 @@ if "async with noon_catalog_transport(client) as transport:" not in scan_store:
 discovery_start = scanner.index("async def discover_noon")
 discovery_end = scanner.index("def select_rotating_batch", discovery_start)
 discovery = scanner[discovery_start:discovery_end]
-if '"noon-catalog-pinned-session"' not in discovery:
-    raise SystemExit("Noon catalog entries must retain the pinned-session source marker")
+if '"noon-catalog-public-pin-ui"' not in discovery:
+    raise SystemExit("Noon catalog entries must retain the public-map source marker")
 
 for forbidden in (
     "insert into products",
