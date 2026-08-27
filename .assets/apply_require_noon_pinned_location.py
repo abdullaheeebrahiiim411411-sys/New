@@ -49,6 +49,15 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
                 option_ready = True
                 break
             await asyncio.sleep(1)
+        # Noon may append a public locality suffix in the runner response. The
+        # fallback remains scoped to the configured public option text only.
+        if not option_ready:
+            public_option = page.get_by_text(re.compile(re.escape(NOON_PUBLIC_LOCATION_OPTION), re.I)).last
+            for attempt in range(8):
+                if await public_option.count() and await public_option.is_visible():
+                    option_ready = True
+                    break
+                await asyncio.sleep(1)
         if not option_ready:
             raise ScanFailure("NOON_PUBLIC_LOCATION_OPTION_UNAVAILABLE")
         await public_option.click(timeout=10000)
@@ -349,6 +358,7 @@ for required in (
         "تأكيد الموقع",
         "The storefront may render this public consent notice",
         "for attempt in range(15)",
+        "configured public option text only",
         "st-whoami-api-web/whoami",
 
         "catalog_request_headers",

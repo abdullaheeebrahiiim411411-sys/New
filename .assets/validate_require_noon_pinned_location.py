@@ -13,6 +13,7 @@ for required in (
     "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
     "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
     "تأكيد الموقع",
+    "configured public option text only",
     "st-whoami-api-web/whoami",
     "catalog_request_headers",
     "capture_catalog_request",
