@@ -72,23 +72,29 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
                 );
                 let setBody = {};
                 try { setBody = await setResponse.json(); } catch (_) {}
-                let whoamiBody = {};
-                let whoamiOk = false;
-                try {
-                    const whoamiResponse = await fetch('/_vs/st/st-whoami-api-web/whoami', {
-                        credentials: 'include', headers: {'x-platform': 'web'},
-                    });
-                    whoamiOk = whoamiResponse.ok;
-                    whoamiBody = await whoamiResponse.json();
-                } catch (_) {}
-                const experience = Array.isArray(whoamiBody.experiences)
-                    ? whoamiBody.experiences.find(item => item && item.key === 'nooninstant')
-                    : null;
-                const pin = experience && experience.selectedPin;
-                const sessionPinVerified = Boolean(
-                    whoamiOk && pin && Number.isFinite(pin.lat) && Number.isFinite(pin.lng)
-                    && Math.abs(pin.lat - lat) < 0.05 && Math.abs(pin.lng - lng) < 0.05
-                );
+                let sessionPinVerified = false;
+                for (let attempt = 0; attempt < 8 && !sessionPinVerified; attempt += 1) {
+                    let whoamiBody = {};
+                    let whoamiOk = false;
+                    try {
+                        const whoamiResponse = await fetch('/_vs/st/st-whoami-api-web/whoami', {
+                            credentials: 'include', headers: {'x-platform': 'web', 'cache-control': 'no-cache'},
+                        });
+                        whoamiOk = whoamiResponse.ok;
+                        whoamiBody = await whoamiResponse.json();
+                    } catch (_) {}
+                    const experience = Array.isArray(whoamiBody.experiences)
+                        ? whoamiBody.experiences.find(item => item && item.key === 'nooninstant')
+                        : null;
+                    const pin = experience && experience.selectedPin;
+                    sessionPinVerified = Boolean(
+                        whoamiOk && pin && Number.isFinite(pin.lat) && Number.isFinite(pin.lng)
+                        && Math.abs(pin.lat - lat) < 0.05 && Math.abs(pin.lng - lng) < 0.05
+                    );
+                    if (!sessionPinVerified && attempt < 7) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
                 return {
                     serviceable: true,
                     hasLocation: true,
@@ -230,6 +236,7 @@ for required in (
             "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
         "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
         "sessionPinVerified",
+        "attempt < 8",
         "st-whoami-api-web/whoami",
 
     'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',

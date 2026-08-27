@@ -18,6 +18,7 @@ for required in (
     "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
     "st-whoami-api-web/whoami",
     "sessionPinVerified",
+    "attempt < 8",
     'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',
     'permissions=["geolocation"]',
     "await ensure_noon_pinned_location(page)",
