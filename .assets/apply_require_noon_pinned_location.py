@@ -256,6 +256,11 @@ fallback_guard_anchor = '''    cached = NOON_SNAPSHOT.get(product_id)
 '''
 fallback_guard_replacement = '''    cached = NOON_SNAPSHOT.get(product_id)
     if cached:
+        # A selected pin and dynamic catalog headers alone did not prove the
+        # displayed product price.  Do not write or alert from this source
+        # until a SKU-bound independent verification path exists.
+        if NOON_PINNED_LOCATION_REQUIRED:
+            raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")
         return cached
 
     # Product-page recovery is admissible only through the browser transport
@@ -274,6 +279,14 @@ legacy_fallback_guard = '''    # A raw product-page response can silently expose
     if NOON_PINNED_LOCATION_REQUIRED:
         raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")
 '''
+catalog_context_guard = '''        if NOON_PINNED_LOCATION_REQUIRED:
+            raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")
+'''
+if "NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED" not in source:
+    if fallback_guard_anchor not in source:
+        raise RuntimeError("Noon catalog price safeguard boundary missing")
+    source = source.replace(fallback_guard_anchor, fallback_guard_replacement + fallback_guard_anchor.split("    # Catalog discovery", 1)[1].join(("    # Catalog discovery", "")), 1)
+
 required_transport_guard = '''    if NOON_PINNED_LOCATION_REQUIRED and product_transport is None:
         raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED")
 '''
@@ -329,6 +342,7 @@ for required in (
         "catalog_request_headers",
         "capture_catalog_request",
         "NOON_PINNED_CATALOG_CONTEXT_UNAVAILABLE",
+        "NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED",
         "st-whoami-api-web/whoami",
 
     'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',

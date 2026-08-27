@@ -23,6 +23,7 @@ for required in (
     "catalog_request_headers",
     "capture_catalog_request",
     "NOON_PINNED_CATALOG_CONTEXT_UNAVAILABLE",
+    "NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED",
     "required_catalog_headers",
     "x-nooninstant-zonecode",
     "x-services-zonecode",
@@ -79,6 +80,9 @@ if product_fetch.index(guard) > product_fetch.index("extract_noon_target_page_fi
 legacy_guard = 'if NOON_PINNED_LOCATION_REQUIRED:\n        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")'
 if legacy_guard not in product_fetch:
     raise SystemExit("Noon product page must remain rejected until its price context is independently verified")
+catalog_guard = 'if NOON_PINNED_LOCATION_REQUIRED:\n            raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")'
+if catalog_guard not in product_fetch:
+    raise SystemExit("Noon catalog prices must remain rejected until their context is independently verified")
 if product_fetch.index(legacy_guard) > product_fetch.index("for attempt in range(NOON_PAGE_FALLBACK_ATTEMPTS):"):
     raise SystemExit("unverified Noon product page must be rejected before page transport")
 if '"noon-product-page-pinned-session" if product_transport is not None' not in product_fetch:
