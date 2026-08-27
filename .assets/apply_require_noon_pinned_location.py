@@ -146,6 +146,31 @@ if old_exception in source:
 elif "except ScanFailure:" not in source[source.index(helper_marker):source.index("async def discover_noon", source.index(helper_marker))]:
     raise RuntimeError("Noon pinned-context exception boundary missing")
 
+fallback_guard_anchor = '''    cached = NOON_SNAPSHOT.get(product_id)
+    if cached:
+        return cached
+
+    # Catalog discovery sometimes receives 429/partial category responses even
+'''
+fallback_guard_replacement = '''    cached = NOON_SNAPSHOT.get(product_id)
+    if cached:
+        return cached
+
+    # A raw product-page response can silently expose the storefront's anonymous
+    # default price even after a browser session has called set-location.  That
+    # response is therefore not evidence of a delivery-bound price.  Preserve
+    # the independently parsed pinned catalog snapshot, but fail this recovery
+    # read safely rather than accepting or alerting on an unverified fallback.
+    if NOON_PINNED_LOCATION_REQUIRED:
+        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")
+
+    # Catalog discovery sometimes receives 429/partial category responses even
+'''
+if "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED" not in source:
+    if fallback_guard_anchor not in source:
+        raise RuntimeError("Noon product fallback safety boundary missing")
+    source = source.replace(fallback_guard_anchor, fallback_guard_replacement, 1)
+
 old_direct = '''    async def direct_fetch(url: str) -> tuple[int, str]:
         return await fetch_text(client, url, noon_headers())
 '''
@@ -170,6 +195,7 @@ for required in (
     'permissions=["geolocation"]',
     "await ensure_noon_pinned_location(page)",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
+    "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED",
     "except ScanFailure:",
 ):
     if required not in source:

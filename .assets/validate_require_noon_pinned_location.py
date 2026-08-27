@@ -19,6 +19,7 @@ for required in (
     'permissions=["geolocation"]',
     "await ensure_noon_pinned_location(page)",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
+    "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED",
     "except ScanFailure:",
 ):
     if required not in scanner:
@@ -38,6 +39,17 @@ if transport.index("await ensure_noon_pinned_location(page)") > transport.index(
     raise SystemExit("Noon pin must be confirmed before catalog or product browser fetches")
 if "if NOON_PINNED_LOCATION_REQUIRED:\n            raise ScanFailure(\"NOON_PINNED_LOCATION_BROWSER_REQUIRED\")" not in transport:
     raise SystemExit("direct Noon transport must reject when pinned context is mandatory")
+
+product_start = scanner.index("async def fetch_noon_product(")
+product_end = scanner.index("def ensure_schema(", product_start)
+product_fetch = scanner[product_start:product_end]
+guard = 'if NOON_PINNED_LOCATION_REQUIRED:\n        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")'
+if guard not in product_fetch:
+    raise SystemExit("unverified Noon product-page fallback must be rejected")
+if product_fetch.index(guard) > product_fetch.index("for attempt in range(NOON_PAGE_FALLBACK_ATTEMPTS):"):
+    raise SystemExit("unverified Noon fallback must be rejected before page transport")
+if product_fetch.index(guard) > product_fetch.index("extract_noon_target_page_fields"):
+    raise SystemExit("unverified Noon fallback must be rejected before price parsing")
 
 scan_start = scanner.index("async def scan_store(")
 scan_end = scanner.index("class NonCompliantCycle", scan_start)
