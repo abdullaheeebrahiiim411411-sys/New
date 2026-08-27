@@ -8,7 +8,12 @@ source = path.read_text(encoding="utf-8")
 # Historical rows are retained intact for auditability.  The UI must not call a
 # raw product-page fallback price "confirmed" when it was captured before the
 # delivery context safeguard existed.  New scans do not produce this source.
-source_guard = "coalesce(debug_info, '') <> 'noon-product-page-live-fallback'"
+legacy_source_guard = "coalesce(debug_info, '') <> 'noon-product-page-live-fallback'"
+source_guard = "coalesce(debug_info, '') not in ('noon-product-page-live-fallback', 'noon-product-page-pinned-session')"
+# Retain historical rows, but never present either product-page source as a
+# confirmed price: the former is raw fallback and the latter predates dynamic
+# delivery-zone catalog evidence.
+source = source.replace(legacy_source_guard, source_guard)
 store_guard = f"(store <> 'NOON_MINUTES' or {source_guard})"
 
 replacements = (
@@ -41,15 +46,15 @@ for old, new in replacements:
 old_conditions = 'conditions = ["not is_ignored", "price_status=\'AVAILABLE\'", "current_price > 0"]\n'
 new_conditions = (
     'conditions = ["not is_ignored", "price_status=\'AVAILABLE\'", "current_price > 0", '
-    '"(store <> \'NOON_MINUTES\' or coalesce(debug_info, \'\') <> \'noon-product-page-live-fallback\')"]\n'
+    f'"(store <> \'NOON_MINUTES\' or {source_guard})"]\n'
 )
 if old_conditions in source:
     source = source.replace(old_conditions, new_conditions, 1)
 
 old_by_id = 'from products where id=%s", (product_id,))\n'
 new_by_id = (
-    "from products where id=%s and (store <> 'NOON_MINUTES' or coalesce(debug_info, '') <> "
-    "'noon-product-page-live-fallback')\", (product_id,))\n"
+    "from products where id=%s and (store <> 'NOON_MINUTES' or "
+    + source_guard + ")\", (product_id,))\n"
 )
 if old_by_id in source:
     source = source.replace(old_by_id, new_by_id, 1)
