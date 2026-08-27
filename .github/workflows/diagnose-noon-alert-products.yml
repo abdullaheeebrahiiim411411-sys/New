@@ -1,0 +1,25 @@
+name: Diagnose Noon alert products
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagnose-noon-alert-products
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: runtime
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install read-only diagnostic dependency
+        run: python -m pip install --disable-pip-version-check --no-cache-dir psycopg2-binary
+      - name: Read reported Noon alert product records
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python .assets/diagnose_noon_alert_products.py
