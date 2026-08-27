@@ -42,9 +42,14 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
         await location_trigger.click(timeout=10000)
         await asyncio.sleep(2)
         await page.locator("input:visible").last.fill(NOON_PUBLIC_LOCATION_QUERY, timeout=5000)
-        await asyncio.sleep(5)
         public_option = page.get_by_text(NOON_PUBLIC_LOCATION_OPTION, exact=True).last
-        if await public_option.count() == 0:
+        option_ready = False
+        for attempt in range(15):
+            if await public_option.count() and await public_option.is_visible():
+                option_ready = True
+                break
+            await asyncio.sleep(1)
+        if not option_ready:
             raise ScanFailure("NOON_PUBLIC_LOCATION_OPTION_UNAVAILABLE")
         await public_option.click(timeout=10000)
         await asyncio.sleep(12)
@@ -343,6 +348,7 @@ for required in (
         "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
         "تأكيد الموقع",
         "The storefront may render this public consent notice",
+        "for attempt in range(15)",
         "st-whoami-api-web/whoami",
 
         "catalog_request_headers",
