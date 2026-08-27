@@ -47,6 +47,13 @@ if task_call in source:
     start = source.index(function_marker)
     end = source.index(task_call, start)
     block = source[start:end]
+    # Confirmation workers own the one acceptance increment. Remove a legacy
+    # duplicate here only from the serial persistence consumer.
+    normalized_block = block.replace("stats.accepted += 1", "")
+    if normalized_block != block:
+        source = source[:start] + normalized_block + source[end:]
+        end = start + len(normalized_block)
+        block = normalized_block
     for item in (
         "item = await confirmed_products.get()",
         "confirmed_products.task_done()",
