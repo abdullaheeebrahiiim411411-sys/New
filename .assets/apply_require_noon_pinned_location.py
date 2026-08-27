@@ -282,13 +282,30 @@ legacy_fallback_guard = '''    # A raw product-page response can silently expose
 catalog_context_guard = '''        if NOON_PINNED_LOCATION_REQUIRED:
             raise ScanFailure("NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED")
 '''
+cached_return = '''    cached = NOON_SNAPSHOT.get(product_id)
+    if cached:
+        return cached
+'''
 if "NOON_CATALOG_PRICE_CONTEXT_UNVERIFIED" not in source:
-    if fallback_guard_anchor not in source:
+    if cached_return in source:
+        source = source.replace(
+            cached_return,
+            fallback_guard_replacement.split("    # Product-page recovery", 1)[0],
+            1,
+        )
+    elif fallback_guard_anchor in source:
+        source = source.replace(
+            fallback_guard_anchor,
+            fallback_guard_replacement + fallback_guard_anchor.split("    # Catalog discovery", 1)[1].join(("    # Catalog discovery", "")),
+            1,
+        )
+    else:
         raise RuntimeError("Noon catalog price safeguard boundary missing")
-    source = source.replace(fallback_guard_anchor, fallback_guard_replacement + fallback_guard_anchor.split("    # Catalog discovery", 1)[1].join(("    # Catalog discovery", "")), 1)
 
 required_transport_guard = '''    if NOON_PINNED_LOCATION_REQUIRED and product_transport is None:
         raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED")
+'''
+page_fallback_anchor = '''    # Catalog discovery sometimes receives 429/partial category responses even
 '''
 if "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED" in source:
     if legacy_fallback_guard not in source:
@@ -297,6 +314,12 @@ elif required_transport_guard in source:
     source = source.replace(
         required_transport_guard,
         required_transport_guard + "\n" + legacy_fallback_guard,
+        1,
+    )
+elif page_fallback_anchor in source:
+    source = source.replace(
+        page_fallback_anchor,
+        required_transport_guard + "\n" + legacy_fallback_guard + "\n" + page_fallback_anchor,
         1,
     )
 elif fallback_guard_anchor in source:
