@@ -274,17 +274,26 @@ legacy_fallback_guard = '''    # A raw product-page response can silently expose
     if NOON_PINNED_LOCATION_REQUIRED:
         raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")
 '''
+required_transport_guard = '''    if NOON_PINNED_LOCATION_REQUIRED and product_transport is None:
+        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED")
+'''
 if "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED" in source:
     if legacy_fallback_guard not in source:
         raise RuntimeError("Noon legacy product fallback guard missing")
-elif "NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED" not in source:
-    if fallback_guard_anchor not in source:
-        raise RuntimeError("Noon product fallback safety boundary missing")
+elif required_transport_guard in source:
+    source = source.replace(
+        required_transport_guard,
+        required_transport_guard + "\n" + legacy_fallback_guard,
+        1,
+    )
+elif fallback_guard_anchor in source:
     source = source.replace(
         fallback_guard_anchor,
         fallback_guard_replacement + legacy_fallback_guard,
         1,
     )
+else:
+    raise RuntimeError("Noon product fallback safety boundary missing")
 
 old_page_source = '"noon-product-page-live-fallback",'
 new_page_source = '"noon-product-page-pinned-session" if product_transport is not None else "noon-product-page-live-fallback",'
