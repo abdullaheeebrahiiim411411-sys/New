@@ -72,11 +72,29 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
                 );
                 let setBody = {};
                 try { setBody = await setResponse.json(); } catch (_) {}
+                let whoamiBody = {};
+                let whoamiOk = false;
+                try {
+                    const whoamiResponse = await fetch('/_vs/st/st-whoami-api-web/whoami', {
+                        credentials: 'include', headers: {'x-platform': 'web'},
+                    });
+                    whoamiOk = whoamiResponse.ok;
+                    whoamiBody = await whoamiResponse.json();
+                } catch (_) {}
+                const experience = Array.isArray(whoamiBody.experiences)
+                    ? whoamiBody.experiences.find(item => item && item.key === 'nooninstant')
+                    : null;
+                const pin = experience && experience.selectedPin;
+                const sessionPinVerified = Boolean(
+                    whoamiOk && pin && Number.isFinite(pin.lat) && Number.isFinite(pin.lng)
+                    && Math.abs(pin.lat - lat) < 0.05 && Math.abs(pin.lng - lng) < 0.05
+                );
                 return {
                     serviceable: true,
                     hasLocation: true,
                     hasCity: true,
                     locationSet: Boolean(setResponse.ok && setBody && setBody.success),
+                    sessionPinVerified,
                 };
             }""",
             request,
@@ -88,6 +106,8 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
         raise ScanFailure("NOON_PINNED_LOCATION_NOT_SERVICEABLE")
     if not outcome.get("hasLocation") or not outcome.get("hasCity") or not outcome.get("locationSet"):
         raise ScanFailure("NOON_PINNED_LOCATION_CONFIRMATION_FAILED")
+    if not outcome.get("sessionPinVerified"):
+        raise ScanFailure("NOON_PINNED_LOCATION_SESSION_UNVERIFIED")
 
 
 '''
@@ -156,20 +176,29 @@ fallback_guard_replacement = '''    cached = NOON_SNAPSHOT.get(product_id)
     if cached:
         return cached
 
-    # A raw product-page response can silently expose the storefront's anonymous
-    # default price even after a browser session has called set-location.  That
-    # response is therefore not evidence of a delivery-bound price.  Preserve
-    # the independently parsed pinned catalog snapshot, but fail this recovery
-    # read safely rather than accepting or alerting on an unverified fallback.
-    if NOON_PINNED_LOCATION_REQUIRED:
-        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")
+    # Product-page recovery is admissible only through the browser transport
+    # created after the serviceable pinned session was verified.  Direct/curl
+    # page reads are not evidence of a delivery-bound price and remain blocked.
+    if NOON_PINNED_LOCATION_REQUIRED and product_transport is None:
+        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED")
 
     # Catalog discovery sometimes receives 429/partial category responses even
 '''
-if "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED" not in source:
+if "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED" in source:
     if fallback_guard_anchor not in source:
         raise RuntimeError("Noon product fallback safety boundary missing")
     source = source.replace(fallback_guard_anchor, fallback_guard_replacement, 1)
+elif "NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED" not in source:
+    if fallback_guard_anchor not in source:
+        raise RuntimeError("Noon product fallback safety boundary missing")
+    source = source.replace(fallback_guard_anchor, fallback_guard_replacement, 1)
+
+old_page_source = '"noon-product-page-live-fallback",'
+new_page_source = '"noon-product-page-pinned-session" if product_transport is not None else "noon-product-page-live-fallback",'
+if old_page_source in source:
+    source = source.replace(old_page_source, new_page_source, 1)
+elif "noon-product-page-pinned-session" not in source:
+    raise RuntimeError("Noon pinned product-page source marker missing")
 
 old_direct = '''    async def direct_fetch(url: str) -> tuple[int, str]:
         return await fetch_text(client, url, noon_headers())
@@ -190,12 +219,17 @@ for required in (
     "serviceable-geo-info/by-location",
     "address/set-location",
     "NOON_PINNED_LOCATION_NOT_SERVICEABLE",
-    "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
+            "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
+        "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
+        "sessionPinVerified",
+        "st-whoami-api-web/whoami",
+
     'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',
     'permissions=["geolocation"]',
     "await ensure_noon_pinned_location(page)",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
-    "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED",
+            "NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED",
+    "noon-product-page-pinned-session",
     "except ScanFailure:",
 ):
     if required not in source:

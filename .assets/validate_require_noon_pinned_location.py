@@ -15,11 +15,15 @@ for required in (
     "NOON_PINNED_LOCATION_SERVICEABILITY_FAILED",
     "NOON_PINNED_LOCATION_NOT_SERVICEABLE",
     "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
+    "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
+    "st-whoami-api-web/whoami",
+    "sessionPinVerified",
     'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',
     'permissions=["geolocation"]',
     "await ensure_noon_pinned_location(page)",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
-    "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED",
+    "NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED",
+    "noon-product-page-pinned-session",
     "except ScanFailure:",
 ):
     if required not in scanner:
@@ -33,6 +37,8 @@ transport = scanner[transport_start:transport_end]
 
 if pin_helper.index("serviceable-geo-info/by-location") > pin_helper.index("address/set-location"):
     raise SystemExit("Noon serviceability must precede set-location")
+if pin_helper.index("address/set-location") > pin_helper.index("st-whoami-api-web/whoami"):
+    raise SystemExit("Noon session must be verified after set-location")
 if "return Product(" in pin_helper or "write_product(" in pin_helper:
     raise SystemExit("location helper must not accept or write prices")
 if transport.index("await ensure_noon_pinned_location(page)") > transport.index("async def browser_fetch"):
@@ -43,13 +49,15 @@ if "if NOON_PINNED_LOCATION_REQUIRED:\n            raise ScanFailure(\"NOON_PINN
 product_start = scanner.index("async def fetch_noon_product(")
 product_end = scanner.index("def ensure_schema(", product_start)
 product_fetch = scanner[product_start:product_end]
-guard = 'if NOON_PINNED_LOCATION_REQUIRED:\n        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")'
+guard = 'if NOON_PINNED_LOCATION_REQUIRED and product_transport is None:\n        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED")'
 if guard not in product_fetch:
-    raise SystemExit("unverified Noon product-page fallback must be rejected")
+    raise SystemExit("Noon product page must require the verified browser transport")
 if product_fetch.index(guard) > product_fetch.index("for attempt in range(NOON_PAGE_FALLBACK_ATTEMPTS):"):
-    raise SystemExit("unverified Noon fallback must be rejected before page transport")
+    raise SystemExit("direct Noon fallback must be rejected before page transport")
 if product_fetch.index(guard) > product_fetch.index("extract_noon_target_page_fields"):
-    raise SystemExit("unverified Noon fallback must be rejected before price parsing")
+    raise SystemExit("direct Noon fallback must be rejected before price parsing")
+if '"noon-product-page-pinned-session" if product_transport is not None' not in product_fetch:
+    raise SystemExit("pinned Noon page source marker must distinguish old unverified fallback")
 
 scan_start = scanner.index("async def scan_store(")
 scan_end = scanner.index("class NonCompliantCycle", scan_start)
