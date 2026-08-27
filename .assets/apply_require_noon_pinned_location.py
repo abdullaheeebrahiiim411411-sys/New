@@ -32,6 +32,9 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
     if not NOON_PINNED_LOCATION_REQUIRED:
         return
     try:
+        # Wait for the public storefront to hydrate its location drawer before
+        # searching the configured public reference point.
+        await asyncio.sleep(12)
         consent = page.get_by_role("button", name=re.compile(r"^قبول$|^Accept$", re.I))
         if await consent.count():
             await consent.first.click(timeout=5000)
@@ -359,6 +362,7 @@ for required in (
         "The storefront may render this public consent notice",
         "for attempt in range(15)",
         "configured public option text only",
+        "Wait for the public storefront to hydrate",
         "st-whoami-api-web/whoami",
 
         "catalog_request_headers",
