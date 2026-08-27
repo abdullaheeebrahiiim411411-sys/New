@@ -9,11 +9,12 @@ source = path.read_text(encoding="utf-8")
 # raw product-page fallback price "confirmed" when it was captured before the
 # delivery context safeguard existed.  New scans do not produce this source.
 legacy_source_guard = "coalesce(debug_info, '') <> 'noon-product-page-live-fallback'"
-source_guard = "coalesce(debug_info, '') not in ('noon-product-page-live-fallback', 'noon-product-page-pinned-session')"
-# Retain historical rows, but never present either product-page source as a
-# confirmed price: the former is raw fallback and the latter predates dynamic
-# delivery-zone catalog evidence.
-source = source.replace(legacy_source_guard, source_guard)
+previous_source_guard = "coalesce(debug_info, '') not in ('noon-product-page-live-fallback', 'noon-product-page-pinned-session')"
+source_guard = "coalesce(debug_info, '') not in ('noon-product-page-live-fallback', 'noon-product-page-pinned-session', 'noon-catalog-pinned-session')"
+# Retain historical rows, but never present pre-public-map product-page or
+# catalog-session prices as confirmed: they did not prove the bot's reference
+# location through Noon’s actual map confirmation flow.
+source = source.replace(legacy_source_guard, source_guard).replace(previous_source_guard, source_guard)
 store_guard = f"(store <> 'NOON_MINUTES' or {source_guard})"
 
 replacements = (

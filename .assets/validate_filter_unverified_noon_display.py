@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 control = (Path(os.environ["PAYLOAD_DIR"]) / "control.py").read_text(encoding="utf-8")
-guard = "(store <> 'NOON_MINUTES' or coalesce(debug_info, '') not in ('noon-product-page-live-fallback', 'noon-product-page-pinned-session'))"
+guard = "(store <> 'NOON_MINUTES' or coalesce(debug_info, '') not in ('noon-product-page-live-fallback', 'noon-product-page-pinned-session', 'noon-catalog-pinned-session'))"
 
 if control.count(guard) < 4:
     raise SystemExit("unverified Noon product-page sources are not excluded from all public price views")
