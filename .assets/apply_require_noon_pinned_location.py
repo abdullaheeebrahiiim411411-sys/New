@@ -48,6 +48,12 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
             raise ScanFailure("NOON_PUBLIC_LOCATION_OPTION_UNAVAILABLE")
         await public_option.click(timeout=10000)
         await asyncio.sleep(12)
+        # The storefront may render this public consent notice after the map
+        # itself, so dismiss it again before attempting the map confirmation.
+        consent = page.get_by_role("button", name=re.compile(r"^قبول$|^Accept$", re.I))
+        if await consent.count():
+            await consent.first.click(timeout=5000)
+            await asyncio.sleep(0.5)
         confirmation = page.get_by_role("button", name=re.compile(r"تأكيد الموقع|Confirm location", re.I)).first
         if await confirmation.count() == 0:
             raise ScanFailure("NOON_PINNED_LOCATION_CONFIRMATION_FAILED")
@@ -336,6 +342,7 @@ for required in (
         "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
         "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
         "تأكيد الموقع",
+        "The storefront may render this public consent notice",
         "st-whoami-api-web/whoami",
 
         "catalog_request_headers",
