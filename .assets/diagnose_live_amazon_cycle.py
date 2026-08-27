@@ -43,6 +43,19 @@ def main() -> None:
             reasons = [{"reason": reason, "count": count} for reason, count in cur.fetchall()]
             cur.execute(
                 """
+                select coalesce(reason, 'UNKNOWN') as reason, count(*) as count
+                from rejected_scans
+                where store = 'NOON_MINUTES'
+                  and rejected_at >= %s
+                group by coalesce(reason, 'UNKNOWN')
+                order by count(*) desc, reason asc
+                limit 30
+                """,
+                (started,),
+            )
+            noon_reasons = [{"reason": reason, "count": count} for reason, count in cur.fetchall()]
+            cur.execute(
+                """
                 select owner, lease_until, updated_at, lease_until > now()
                 from runtime_leases where lease_key = 'scheduled_scan'
                 """
@@ -99,6 +112,7 @@ def main() -> None:
             "amazon": {"scanned": a_scan, "accepted": a_ok, "rejected": a_rej},
             "noon": {"scanned": n_scan, "accepted": n_ok, "rejected": n_rej},
             "amazon_reasons": reasons,
+            "noon_reasons": noon_reasons,
             "scan_lease": lease,
             "amazon_history": {
                 "products_total": total,
