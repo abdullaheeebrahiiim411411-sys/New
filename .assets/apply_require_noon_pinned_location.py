@@ -41,22 +41,13 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
     if pinned:
         return
 
-    opened = await page.evaluate(
-        """hint => {
-            const buttons = [...document.querySelectorAll('button')];
-            const city = buttons.find(button => {
-                if (!button.getClientRects().length) return false;
-            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
-                return text.length > 0 && text.length < 18 && text.toLocaleLowerCase().includes(hint);
-            });
-            if (!city) return false;
-            city.click();
-            return true;
-        }""",
-        hint,
-    )
-    if not opened:
-        raise ScanFailure("NOON_PINNED_LOCATION_SELECTOR_UNAVAILABLE")
+    city = page.locator("button:visible, [role='button']:visible").filter(
+        has_text=re.compile(re.escape(NOON_LOCATION_UI_HINT), re.I)
+    ).first
+    try:
+        await city.click(timeout=NOON_BROWSER_TIMEOUT_MS)
+    except Exception as exc:
+        raise ScanFailure("NOON_PINNED_LOCATION_SELECTOR_UNAVAILABLE") from exc
 
     confirm = page.get_by_role("button", name=re.compile(r"تأكيد الموقع|Confirm location", re.I))
     try:
@@ -92,16 +83,44 @@ if "async def ensure_noon_pinned_location(page)" not in source:
         raise RuntimeError("Noon transport anchor missing")
     source = source.replace(helper_marker, helper + helper_marker, 1)
 
-# Normalize the visible-element safeguard when upgrading the prior published
-# version, whose first matching city button could be an invisible drawer entry.
+# Upgrade the prior published helper from an untrusted JavaScript click to a
+# Playwright click on a visible selector.  The storefront ignores the former in
+# ephemeral workers, leaving the confirmation modal unopened.
 helper_start = source.index("async def ensure_noon_pinned_location(page)")
 helper_end = source.index(helper_marker, helper_start)
 helper_source = source[helper_start:helper_end]
-visibility_needle = "const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();"
-visibility_replacement = "if (!button.getClientRects().length) return false;\\n            " + visibility_needle
-if "button.getClientRects().length" not in helper_source:
-    helper_source = helper_source.replace(visibility_needle, visibility_replacement)
-    source = source[:helper_start] + helper_source + source[helper_end:]
+old_open = '''    opened = await page.evaluate(
+        """hint => {
+            const buttons = [...document.querySelectorAll('button')];
+            const city = buttons.find(button => {
+                if (!button.getClientRects().length) return false;
+            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
+                return text.length > 0 && text.length < 18 && text.toLocaleLowerCase().includes(hint);
+            });
+            if (!city) return false;
+            city.click();
+            return true;
+        }""",
+        hint,
+    )
+    if not opened:
+        raise ScanFailure("NOON_PINNED_LOCATION_SELECTOR_UNAVAILABLE")
+
+'''
+new_open = '''    city = page.locator("button:visible, [role='button']:visible").filter(
+        has_text=re.compile(re.escape(NOON_LOCATION_UI_HINT), re.I)
+    ).first
+    try:
+        await city.click(timeout=NOON_BROWSER_TIMEOUT_MS)
+    except Exception as exc:
+        raise ScanFailure("NOON_PINNED_LOCATION_SELECTOR_UNAVAILABLE") from exc
+
+'''
+if old_open in helper_source:
+    helper_source = helper_source.replace(old_open, new_open, 1)
+elif "page.locator(\"button:visible, [role='button']:visible\")" not in helper_source:
+    raise RuntimeError("Noon visible location selector upgrade boundary missing")
+source = source[:helper_start] + helper_source + source[helper_end:]
 
 old_context = '''            context = await browser.new_context(locale="ar-SA", user_agent=noon_headers()["User-Agent"])
             location_cookies = noon_browser_cookies()

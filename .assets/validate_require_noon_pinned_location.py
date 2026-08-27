@@ -14,7 +14,8 @@ for required in (
     'permissions=["geolocation"]',
     "await ensure_noon_pinned_location(page)",
     "await page.wait_for_function(",
-    "button.getClientRects().length",
+    'page.locator("button:visible, [role=\'button\']:visible")',
+    "await city.click(",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
 ):
     if required not in scanner:
