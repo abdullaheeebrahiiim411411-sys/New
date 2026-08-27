@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
 
 jobs:
@@ -18,3 +19,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python .assets/request_full_scan.py
+      - name: Start the protected full Routine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run routine.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
