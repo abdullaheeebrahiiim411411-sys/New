@@ -184,10 +184,18 @@ fallback_guard_replacement = '''    cached = NOON_SNAPSHOT.get(product_id)
 
     # Catalog discovery sometimes receives 429/partial category responses even
 '''
+legacy_fallback_guard = '''    # A raw product-page response can silently expose the storefront's anonymous
+    # default price even after a browser session has called set-location.  That
+    # response is therefore not evidence of a delivery-bound price.  Preserve
+    # the independently parsed pinned catalog snapshot, but fail this recovery
+    # read safely rather than accepting or alerting on an unverified fallback.
+    if NOON_PINNED_LOCATION_REQUIRED:
+        raise ScanFailure("NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED")
+'''
 if "NOON_PRODUCT_PAGE_PINNED_CONTEXT_UNVERIFIED" in source:
-    if fallback_guard_anchor not in source:
-        raise RuntimeError("Noon product fallback safety boundary missing")
-    source = source.replace(fallback_guard_anchor, fallback_guard_replacement, 1)
+    if legacy_fallback_guard not in source:
+        raise RuntimeError("Noon legacy product fallback guard missing")
+    source = source.replace(legacy_fallback_guard, fallback_guard_replacement.split("    # Catalog discovery", 1)[0], 1)
 elif "NOON_PRODUCT_PAGE_PINNED_CONTEXT_REQUIRED" not in source:
     if fallback_guard_anchor not in source:
         raise RuntimeError("Noon product fallback safety boundary missing")
