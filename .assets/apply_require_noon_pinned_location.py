@@ -7,9 +7,6 @@ source = path.read_text(encoding="utf-8")
 
 constant_anchor = 'NOON_BROWSER_CATALOG = os.getenv("NOON_BROWSER_CATALOG", "1").strip().lower() not in {"0", "false", "no"}\n'
 required_constants = '''NOON_PINNED_LOCATION_REQUIRED = os.getenv("NOON_PINNED_LOCATION_REQUIRED", "true").strip().lower() in {"1", "true", "yes", "on"}
-# The public storefront uses Arabic city labels even when the operational name is
-# configured in English. This hint is only used to open the visible pin selector.
-NOON_LOCATION_UI_HINT = os.getenv("NOON_LOCATION_UI_HINT", "الرياض").strip()
 '''
 if "NOON_PINNED_LOCATION_REQUIRED =" not in source:
     if constant_anchor not in source:
@@ -18,109 +15,90 @@ if "NOON_PINNED_LOCATION_REQUIRED =" not in source:
 
 helper_marker = "@asynccontextmanager\nasync def noon_catalog_transport(client: AsyncSession):\n"
 helper = '''async def ensure_noon_pinned_location(page) -> None:
-    """Confirm a visible delivery pin before accepting public Minutes prices.
+    """Set and verify a serviceable Noon delivery location for this browser context.
 
-    A city-only default does not prove the product price is valid for a delivery
-    address. The session begins with the configured Riyadh geolocation, opens the
-    storefront's own location selector, confirms its map pin, then verifies that
-    the header changed from a city label to a concrete delivery location. No
-    address text, cookie value, or address key is logged or persisted.
+    The public storefront's API first resolves a point to a serviceable location,
+    then attaches that location to the anonymous browser session.  This is the
+    same order used by Noon’s map UI, but avoids treating a city-only default
+    page as a confirmed price context.  No address text, key, cookie, or account
+    data is logged or persisted by the scanner.
     """
     if not NOON_PINNED_LOCATION_REQUIRED:
         return
 
-    hint = NOON_LOCATION_UI_HINT.casefold()
-    pinned = await page.evaluate(
-        """hint => [...document.querySelectorAll('button')].some(button => {
-            if (!button.getClientRects().length) return false;
-            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
-            return text.length >= 18 && text.toLocaleLowerCase().includes(hint);
-        })""",
-        hint,
-    )
-    if pinned:
-        return
-
-    city = page.locator("button:visible, [role='button']:visible").filter(
-        has_text=re.compile(re.escape(NOON_LOCATION_UI_HINT), re.I)
-    ).first
+    # Browser forbids a few transport-controlled headers; retain the public
+    # Minutes delivery-context headers that the existing scanner already uses.
+    location_headers = {
+        key: value
+        for key, value in noon_headers().items()
+        if key.casefold() not in {"user-agent", "cookie", "accept"}
+    }
+    request = {
+        "lat": NOON_LOCATION_LAT,
+        "lng": NOON_LOCATION_LON,
+        "headers": location_headers,
+    }
     try:
-        await city.click(timeout=NOON_BROWSER_TIMEOUT_MS)
-    except Exception as exc:
-        raise ScanFailure("NOON_PINNED_LOCATION_SELECTOR_UNAVAILABLE") from exc
-
-    confirm = page.get_by_role("button", name=re.compile(r"تأكيد الموقع|Confirm location", re.I))
-    try:
-        await confirm.wait_for(state="visible", timeout=NOON_BROWSER_TIMEOUT_MS)
-        await confirm.click(timeout=NOON_BROWSER_TIMEOUT_MS)
-        await page.wait_for_function(
-            """hint => [...document.querySelectorAll('button')].some(button => {
-                if (!button.getClientRects().length) return false;
-            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
-                return text.length >= 18 && text.toLocaleLowerCase().includes(hint);
-            })""",
-            arg=hint,
-            timeout=NOON_BROWSER_TIMEOUT_MS,
+        outcome = await page.evaluate(
+            """async ({lat, lng, headers}) => {
+                const post = async (path, body) => fetch(path, {
+                    method: 'POST', credentials: 'include',
+                    headers: {'content-type': 'application/json', ...headers},
+                    body: JSON.stringify(body),
+                });
+                const serviceResponse = await post(
+                    '/_svc/mp-identity-api/serviceable-geo-info/by-location',
+                    {location: {lat, lng}},
+                );
+                let serviceBody = {};
+                try { serviceBody = await serviceResponse.json(); } catch (_) {}
+                const service = serviceBody.data || serviceBody;
+                const location = service && service.location;
+                const area = service
+                    ? [service.placeName, service.area].filter(Boolean).join(' - ')
+                    : '';
+                const cityId = service && service.cityId;
+                if (!serviceResponse.ok || !service || !service.isServiceable || !location || !cityId) {
+                    return {
+                        serviceable: false,
+                        hasLocation: Boolean(location),
+                        hasCity: Boolean(cityId),
+                        locationSet: false,
+                    };
+                }
+                const setResponse = await post(
+                    '/_svc/mp-identity-api/address/set-location',
+                    {location, area, cityId},
+                );
+                let setBody = {};
+                try { setBody = await setResponse.json(); } catch (_) {}
+                return {
+                    serviceable: true,
+                    hasLocation: true,
+                    hasCity: true,
+                    locationSet: Boolean(setResponse.ok && setBody && setBody.success),
+                };
+            }""",
+            request,
         )
     except Exception as exc:
-        raise ScanFailure("NOON_PINNED_LOCATION_CONFIRMATION_FAILED") from exc
+        raise ScanFailure("NOON_PINNED_LOCATION_SERVICEABILITY_FAILED") from exc
 
-    pinned = await page.evaluate(
-        """hint => [...document.querySelectorAll('button')].some(button => {
-            if (!button.getClientRects().length) return false;
-            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
-            return text.length >= 18 && text.toLocaleLowerCase().includes(hint);
-        })""",
-        hint,
-    )
-    if not pinned:
-        raise ScanFailure("NOON_PINNED_LOCATION_NOT_CONFIRMED")
+    if not isinstance(outcome, dict) or not outcome.get("serviceable"):
+        raise ScanFailure("NOON_PINNED_LOCATION_NOT_SERVICEABLE")
+    if not outcome.get("hasLocation") or not outcome.get("hasCity") or not outcome.get("locationSet"):
+        raise ScanFailure("NOON_PINNED_LOCATION_CONFIRMATION_FAILED")
 
 
 '''
-if "async def ensure_noon_pinned_location(page)" not in source:
-    if helper_marker not in source:
-        raise RuntimeError("Noon transport anchor missing")
+if helper_marker not in source:
+    raise RuntimeError("Noon transport anchor missing")
+if "async def ensure_noon_pinned_location(page)" in source:
+    helper_start = source.index("async def ensure_noon_pinned_location(page)")
+    helper_end = source.index(helper_marker, helper_start)
+    source = source[:helper_start] + helper + source[helper_end:]
+else:
     source = source.replace(helper_marker, helper + helper_marker, 1)
-
-# Upgrade the prior published helper from an untrusted JavaScript click to a
-# Playwright click on a visible selector.  The storefront ignores the former in
-# ephemeral workers, leaving the confirmation modal unopened.
-helper_start = source.index("async def ensure_noon_pinned_location(page)")
-helper_end = source.index(helper_marker, helper_start)
-helper_source = source[helper_start:helper_end]
-old_open = '''    opened = await page.evaluate(
-        """hint => {
-            const buttons = [...document.querySelectorAll('button')];
-            const city = buttons.find(button => {
-                if (!button.getClientRects().length) return false;
-            const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
-                return text.length > 0 && text.length < 18 && text.toLocaleLowerCase().includes(hint);
-            });
-            if (!city) return false;
-            city.click();
-            return true;
-        }""",
-        hint,
-    )
-    if not opened:
-        raise ScanFailure("NOON_PINNED_LOCATION_SELECTOR_UNAVAILABLE")
-
-'''
-new_open = '''    city = page.locator("button:visible, [role='button']:visible").filter(
-        has_text=re.compile(re.escape(NOON_LOCATION_UI_HINT), re.I)
-    ).first
-    try:
-        await city.click(timeout=NOON_BROWSER_TIMEOUT_MS)
-    except Exception as exc:
-        raise ScanFailure("NOON_PINNED_LOCATION_SELECTOR_UNAVAILABLE") from exc
-
-'''
-if old_open in helper_source:
-    helper_source = helper_source.replace(old_open, new_open, 1)
-elif "page.locator(\"button:visible, [role='button']:visible\")" not in helper_source:
-    raise RuntimeError("Noon visible location selector upgrade boundary missing")
-source = source[:helper_start] + helper_source + source[helper_end:]
 
 old_context = '''            context = await browser.new_context(locale="ar-SA", user_agent=noon_headers()["User-Agent"])
             location_cookies = noon_browser_cookies()
@@ -183,12 +161,14 @@ elif "NOON_PINNED_LOCATION_BROWSER_REQUIRED" not in source:
 
 for required in (
     "NOON_PINNED_LOCATION_REQUIRED =",
-    "NOON_LOCATION_UI_HINT =",
     "async def ensure_noon_pinned_location(page)",
+    "serviceable-geo-info/by-location",
+    "address/set-location",
+    "NOON_PINNED_LOCATION_NOT_SERVICEABLE",
+    "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
     'geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON}',
     'permissions=["geolocation"]',
     "await ensure_noon_pinned_location(page)",
-    "NOON_PINNED_LOCATION_NOT_CONFIRMED",
     "NOON_PINNED_LOCATION_BROWSER_REQUIRED",
     "except ScanFailure:",
 ):
