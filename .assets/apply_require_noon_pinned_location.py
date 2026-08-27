@@ -136,6 +136,19 @@ old_context = '''            context = await browser.new_context(locale="ar-SA",
             page = await context.new_page()
             await page.goto("https://minutes.noon.com/saudi-ar/", wait_until="domcontentloaded", timeout=NOON_BROWSER_TIMEOUT_MS)
 '''
+prior_pinned_context = '''            context = await browser.new_context(
+                locale="ar-SA",
+                user_agent=noon_headers()["User-Agent"],
+                geolocation={"latitude": NOON_LOCATION_LAT, "longitude": NOON_LOCATION_LON},
+                permissions=["geolocation"],
+            )
+            location_cookies = noon_browser_cookies()
+            if location_cookies:
+                await context.add_cookies(location_cookies)
+            page = await context.new_page()
+            await page.goto("https://minutes.noon.com/saudi-ar/", wait_until="domcontentloaded", timeout=NOON_BROWSER_TIMEOUT_MS)
+            await ensure_noon_pinned_location(page)
+'''
 new_context = '''            context = await browser.new_context(
                 locale="ar-SA",
                 user_agent=noon_headers()["User-Agent"],
@@ -171,7 +184,9 @@ new_context = '''            context = await browser.new_context(
 '''
 if old_context in source:
     source = source.replace(old_context, new_context, 1)
-elif "await ensure_noon_pinned_location(page)" not in source:
+elif prior_pinned_context in source:
+    source = source.replace(prior_pinned_context, new_context, 1)
+elif "catalog_request_headers" not in source:
     raise RuntimeError("Noon browser setup boundary missing")
 
 old_browser_headers = '''                    headers = noon_headers()
