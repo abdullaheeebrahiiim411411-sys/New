@@ -31,7 +31,6 @@ if task_call in source and function_marker not in source:
                 alert = write_product(conn, product, prior, started, commit=False)
                 if alert:
                     alerts.append(alert)
-                stats.accepted += 1
             except Exception as exc:
                 if item is not None:
                     product, _variant = item
@@ -52,13 +51,18 @@ if task_call in source:
         "item = await confirmed_products.get()",
         "confirmed_products.task_done()",
         "alert = write_product(conn, product, prior, started, commit=False)",
-        "stats.accepted += 1",
         "AMAZON_SECOND_SESSION",
     ):
         if item == "AMAZON_SECOND_SESSION":
             continue
         if item not in block:
             raise RuntimeError(f"confirmed-product persistence safeguard missing: {item}")
+
+if task_call in source:
+    start = source.index(function_marker)
+    end = source.index(task_call, start)
+    if "stats.accepted += 1" in source[start:end]:
+        raise RuntimeError("persistence consumer must not increment Amazon acceptance twice")
 
 for required in (
     "def write_product(",

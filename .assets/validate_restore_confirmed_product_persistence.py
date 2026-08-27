@@ -17,13 +17,20 @@ if task_call in scanner:
         "item = await confirmed_products.get()",
         "confirmed_products.task_done()",
         "alert = write_product(conn, product, prior, started, commit=False)",
-        "stats.accepted += 1",
         "record_failure(product.external_id, product.url, str(exc))",
     ):
         if item not in block:
             raise SystemExit(f"missing confirmed-product persistence behavior: {item}")
+    if "stats.accepted += 1" in block:
+        raise SystemExit("persistence consumer must not double-count confirmed Amazon prices")
     if "products" in block.replace("confirmed_products", ""):
         raise SystemExit("persistence consumer contains unexpected direct product-table operation")
+
+confirmation_start = scanner.index("async def confirmation_worker(")
+confirmation_end = scanner.index("confirmation_tasks =", confirmation_start)
+confirmation_block = scanner[confirmation_start:confirmation_end]
+if "stats.accepted += 1" not in confirmation_block:
+    raise SystemExit("confirmation worker must retain the single Amazon acceptance increment")
 
 for item in (
     "AMAZON_SECOND_SESSION_FAILED:",
