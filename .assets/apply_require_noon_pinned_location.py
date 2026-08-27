@@ -87,13 +87,20 @@ helper = '''async def ensure_noon_pinned_location(page) -> None:
                         ? whoamiBody.experiences.find(item => item && item.key === 'nooninstant')
                         : null;
                     const pin = experience && experience.selectedPin;
-                    // The storefront may map a serviceable point to the center
-                    // of its delivery zone. Confirm that the session holds an
-                    // active Noon pin; do not require raw-coordinate equality or
-                    // inspect/log the pin itself.
+                    // Noon stores selected-pin coordinates at its E7 precision in
+                    // some sessions, while browser geolocation uses degrees.
+                    // Normalize internally before comparison; do not log either.
+                    const coordinateDegrees = value => {
+                        const numeric = Number(value);
+                        return Number.isFinite(numeric) && Math.abs(numeric) > 1000
+                            ? numeric / 10000000
+                            : numeric;
+                    };
+                    const pinLat = pin && coordinateDegrees(pin.lat);
+                    const pinLng = pin && coordinateDegrees(pin.lng);
                     sessionPinVerified = Boolean(
-                        whoamiOk && pin && Number.isFinite(Number(pin.lat))
-                        && Number.isFinite(Number(pin.lng))
+                        whoamiOk && pin && Number.isFinite(pinLat) && Number.isFinite(pinLng)
+                        && Math.abs(pinLat - lat) < 0.05 && Math.abs(pinLng - lng) < 0.05
                     );
                     if (!sessionPinVerified && attempt < 7) {
                         await new Promise(resolve => setTimeout(resolve, 500));
@@ -240,7 +247,8 @@ for required in (
             "NOON_PINNED_LOCATION_CONFIRMATION_FAILED",
         "NOON_PINNED_LOCATION_SESSION_UNVERIFIED",
         "sessionPinVerified",
-        "active Noon pin",
+        "coordinateDegrees",
+        "10000000",
         "attempt < 8",
         "st-whoami-api-web/whoami",
 
