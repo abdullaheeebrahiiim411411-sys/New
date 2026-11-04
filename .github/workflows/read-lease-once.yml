@@ -1,0 +1,23 @@
+name: Read lease once
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: runtime
+    steps:
+      - run: python -m pip install --disable-pip-version-check --no-cache-dir psycopg2-binary
+      - env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os,psycopg2
+          c=psycopg2.connect(os.environ['DATABASE_URL'],connect_timeout=20,sslmode='require')
+          with c:
+            with c.cursor() as x:
+              x.execute("""select rl.owner,rl.lease_until,rl.updated_at,ss.status,ss.last_check_start,ss.last_check_end from runtime_leases rl join system_status ss on ss.id=1 where rl.lease_key='scheduled_scan'""")
+              r=x.fetchone(); print('lease=',r)
+          PY
