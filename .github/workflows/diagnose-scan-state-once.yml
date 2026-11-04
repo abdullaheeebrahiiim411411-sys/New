@@ -26,6 +26,7 @@ jobs:
                 lease,updated,status,start,end,nextc=r
                 x.execute("select now(), extract(epoch from now())")
                 now=x.fetchone()
+                print('lease_owner=',str(r[0])[:80])
                 print('lease_until=',lease)
                 print('lease_updated_at=',updated)
                 print('status=',status)
