@@ -1,0 +1,30 @@
+name: Remove idle stale lease once
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  remove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: runtime
+    steps:
+      - run: python -m pip install --disable-pip-version-check --no-cache-dir psycopg2-binary
+      - env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EXPECTED_OWNER: gha-e70334e6-9865-468a-b701-849dd4cd5f67
+        run: |
+          python - <<'PY'
+          import os,psycopg2
+          c=psycopg2.connect(os.environ['DATABASE_URL'],connect_timeout=20,sslmode='require')
+          with c:
+            with c.cursor() as x:
+              x.execute("""select rl.owner,ss.status,rl.updated_at from runtime_leases rl join system_status ss on ss.id=1 where rl.lease_key='scheduled_scan' for update of rl,ss""")
+              r=x.fetchone()
+              if not r: raise SystemExit('lease_missing')
+              owner,status,updated=r
+              if owner != os.environ['EXPECTED_OWNER'] or str(status).upper() != 'IDLE': raise SystemExit('guard_refused')
+              x.execute("delete from runtime_leases where lease_key='scheduled_scan' and owner=%s",(owner,))
+              if x.rowcount != 1: raise SystemExit('delete_failed')
+              print('idle_stale_lease_removed=true')
+          PY
