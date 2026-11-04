@@ -22,7 +22,6 @@ jobs:
               x.execute("""UPDATE system_status SET
                   status='IDLE',
                   last_check_end=now(),
-                  scan_duration=0,
                   next_check=now(),
                   updated_at=now()
                 WHERE id=1""")
