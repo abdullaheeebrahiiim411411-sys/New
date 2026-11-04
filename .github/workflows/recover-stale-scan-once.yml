@@ -24,7 +24,7 @@ jobs:
               with conn:
                   with conn.cursor() as cur:
                       cur.execute("""
-                          SELECT rl.owner, rl.lease_until, ss.status, ss.last_check_start
+                          SELECT rl.owner, rl.lease_until, ss.status
                           FROM runtime_leases rl
                           JOIN system_status ss ON ss.id = 1
                           WHERE rl.lease_key = 'scheduled_scan'
@@ -34,14 +34,13 @@ jobs:
                       if not row:
                           print('no_scheduled_scan_lease')
                       else:
-                          owner, lease_until, status, started = row
+                          owner, lease_until, status = row
                           cur.execute("""
                               SELECT (
-                                  %s < EXTRACT(EPOCH FROM now())
-                                  AND UPPER(COALESCE(%s, '')) = 'SCANNING'
-                                  AND COALESCE(%s, 0) < EXTRACT(EPOCH FROM now()) - 1800
+                                  %s < now() - interval '30 minutes'
+                                  AND COALESCE(%s, '') NOT IN ('IDLE', 'مستريح 💤')
                               )
-                          """, (lease_until, status, started))
+                          """, (lease_until, status))
                           stale = bool(cur.fetchone()[0])
                           if not stale:
                               raise SystemExit('guard_refused_non_stale_scan')
